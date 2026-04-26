@@ -32,6 +32,7 @@ from src.visualization import (
     create_animated_zone_performance_figure,
     create_pjm_animation_gif_bytes,
     create_pjm_matplotlib_figure,
+    map_value_to_rank_color,
 )
 
 
@@ -325,6 +326,17 @@ class TemporalSnapshotTests(unittest.TestCase):
         self.assertGreater(_hex_luminance(low_color), _hex_luminance(mid_color))
         self.assertGreater(_hex_luminance(mid_color), _hex_luminance(high_color))
         self.assertGreater(_hex_luminance(low_color) - _hex_luminance(high_color), 0.25)
+
+    def test_rank_color_scale_spreads_close_values_monotonically(self) -> None:
+        values = [886, 893, 899, 901, 905, 913, 920, 924, 932, 938, 948]
+        colors = [map_value_to_rank_color(value, values) for value in values]
+        palette_order = ["#D9FAD7", "#B1F3AE", "#72E972", "#4AE34A", "#1CB51C"]
+        indices = [palette_order.index(color) for color in colors]
+
+        self.assertEqual(colors[0], "#D9FAD7")
+        self.assertEqual(colors[-1], "#1CB51C")
+        self.assertGreaterEqual(len(set(colors)), 5)
+        self.assertEqual(indices, sorted(indices))
 
     def test_interpolated_animation_frames_increase_frame_count_and_preserve_endpoints(self) -> None:
         start_frame = pd.DataFrame({"Zone_Normalized": ["BGE"], "Zone": ["BGE"], "Selected_Metric": [10.0]})

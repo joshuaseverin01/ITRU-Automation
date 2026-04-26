@@ -501,6 +501,7 @@ def create_pjm_matplotlib_figure(
     compact: bool = False,
     sort_order: str = "Top zones",
     metric_range: tuple[float, float] | None = None,
+    color_domain_values: list[float] | None = None,
 ) -> tuple[ChartResult, dict[str, object]]:
     """Render a high-fidelity PJM polygon map with ranked bars using matplotlib.
 
@@ -553,6 +554,7 @@ def create_pjm_matplotlib_figure(
             compact=compact,
             sort_order=sort_order,
             metric_range=metric_range,
+            color_domain_values=color_domain_values,
         )
         return ChartResult(figure, None), diagnostics
     except Exception as exc:
@@ -622,6 +624,7 @@ def create_pjm_animation_gif_bytes(
             return GifAnimationResult(None, "No animation snapshot zones matched the PJM GeoJSON.", diagnostics, frame_dataframes, frame_labels)
 
         metric_range = _global_metric_range(frame_dataframes, "Selected_Metric")
+        color_domain_values = _global_metric_values(frame_dataframes, "Selected_Metric")
         period_label = format_time_range_label(start_time, end_time, str(combined["Time_Granularity"].dropna().iloc[0]) if "Time_Granularity" in combined.columns else "monthly")
         render_frames = _build_interpolated_animation_frames(
             frame_dataframes,
@@ -646,6 +649,7 @@ def create_pjm_animation_gif_bytes(
                 title="PJM Zone Performance",
                 compact=False,
                 metric_range=metric_range,
+                color_domain_values=color_domain_values,
             )
             if chart_result.figure is None:
                 return GifAnimationResult(None, chart_result.message or "Animation frame rendering failed.", diagnostics, frame_dataframes, frame_labels)
@@ -767,12 +771,7 @@ def _interpolatable_numeric_columns(start_row: dict[str, object], end_row: dict[
 
 
 def _global_metric_range(frame_dataframes: list[pd.DataFrame], metric: str) -> tuple[float, float] | None:
-    values: list[float] = []
-    for frame in frame_dataframes:
-        if metric not in frame.columns:
-            continue
-        numeric_values = pd.to_numeric(frame[metric], errors="coerce").dropna()
-        values.extend(float(value) for value in numeric_values.tolist())
+    values = _global_metric_values(frame_dataframes, metric)
     if not values:
         return None
 
@@ -782,6 +781,16 @@ def _global_metric_range(frame_dataframes: list[pd.DataFrame], metric: str) -> t
         value_min -= 1.0
         value_max += 1.0
     return value_min, value_max
+
+
+def _global_metric_values(frame_dataframes: list[pd.DataFrame], metric: str) -> list[float]:
+    values: list[float] = []
+    for frame in frame_dataframes:
+        if metric not in frame.columns:
+            continue
+        numeric_values = pd.to_numeric(frame[metric], errors="coerce").dropna()
+        values.extend(float(value) for value in numeric_values.tolist())
+    return values
 
 
 def _revenue_green_cmap() -> LinearSegmentedColormap:
@@ -795,6 +804,21 @@ def map_value_to_color(value: float, vmin: float, vmax: float) -> str:
         normalized = (float(value) - float(vmin)) / (float(vmax) - float(vmin))
     index = int(round(float(np.clip(normalized, 0.0, 1.0)) * (len(MATPLOTLIB_REVENUE_PALETTE) - 1)))
     return MATPLOTLIB_REVENUE_PALETTE[index]
+
+
+def map_value_to_rank_color(value: float, domain_values: list[float] | pd.Series | np.ndarray) -> str:
+    values = pd.to_numeric(pd.Series(domain_values), errors="coerce").dropna().astype(float)
+    if values.empty:
+        return map_value_to_color(value, 0.0, 1.0)
+
+    unique_values = sorted(values.unique().tolist())
+    if len(unique_values) == 1:
+        return MATPLOTLIB_REVENUE_PALETTE[len(MATPLOTLIB_REVENUE_PALETTE) // 2]
+
+    position = int(np.searchsorted(unique_values, float(value), side="left"))
+    position = int(np.clip(position, 0, len(unique_values) - 1))
+    color_index = int(round(position * (len(MATPLOTLIB_REVENUE_PALETTE) - 1) / (len(unique_values) - 1)))
+    return MATPLOTLIB_REVENUE_PALETTE[color_index]
 
 
 def _metric_color(value: float, value_min: float, value_max: float, cmap: LinearSegmentedColormap) -> object:
@@ -1244,6 +1268,7 @@ def _draw_pjm_matplotlib_map_bars(
     compact: bool,
     sort_order: str,
     metric_range: tuple[float, float] | None = None,
+    color_domain_values: list[float] | None = None,
 ) -> Figure:
     figure_width = 10.8 if compact else 14.2
     figure_height = 5.15 if compact else 7.45
@@ -1297,8 +1322,8 @@ def _draw_pjm_matplotlib_map_bars(
         for _, row in chart_data.iterrows()
         if _to_float(row.get(metric)) is not None
     }
-    cmap = _revenue_green_cmap()
     numeric_values = pd.to_numeric(chart_data[metric], errors="coerce").dropna()
+    color_domain = color_domain_values or numeric_values.astype(float).tolist()
     if metric_range is not None:
         value_min = float(metric_range[0])
         value_max = float(metric_range[1])
@@ -1320,7 +1345,7 @@ def _draw_pjm_matplotlib_map_bars(
 
     for geometry in geometries:
         value = values_by_zone.get(geometry.normalized_zone)
-        facecolor = MATPLOTLIB_NO_DATA_COLOR if value is None else _metric_color(value, value_min, value_max, cmap)
+        facecolor = MATPLOTLIB_NO_DATA_COLOR if value is None else map_value_to_rank_color(value, color_domain)
         patch = PathPatch(
             geometry.path,
             facecolor=facecolor,
@@ -1363,7 +1388,7 @@ def _draw_pjm_matplotlib_map_bars(
     bar_zones = bar_data["Zone"].astype(str).tolist()
     y_positions = np.arange(len(bar_data), dtype=float)
     bar_colors = [
-        MATPLOTLIB_NEGATIVE_BAR_COLOR if value < 0 else _metric_color(value, value_min, value_max, cmap)
+        MATPLOTLIB_NEGATIVE_BAR_COLOR if value < 0 else map_value_to_rank_color(value, color_domain)
         for value in bar_values
     ]
 

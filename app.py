@@ -146,6 +146,19 @@ def _inject_global_styles() -> None:
             color: #1F2937;
             border-color: #B7E4B7;
         }
+        details[data-testid="stExpander"],
+        details[data-testid="stExpander"] summary,
+        div[data-testid="stExpander"] summary,
+        div[data-testid="stExpander"] div[role="button"] {
+            background: #F8FFF8 !important;
+            color: #1F2937 !important;
+            border-color: #B7E4B7 !important;
+        }
+        details[data-testid="stExpander"] summary *,
+        div[data-testid="stExpander"] summary *,
+        div[data-testid="stExpander"] div[role="button"] * {
+            color: #1F2937 !important;
+        }
         div[data-testid="stAlert"] {
             background: #F0FFF0 !important;
             color: #1F2937 !important;
@@ -169,24 +182,28 @@ def _inject_global_styles() -> None:
         }
         .stButton > button,
         .stDownloadButton > button,
-        div[data-testid="stFileUploader"] button {
+        div[data-testid="stFileUploader"] button,
+        button[data-testid^="baseButton"] {
             background: #FFFFFF !important;
             border: 1px solid #86C986 !important;
             color: #1F2937 !important;
         }
         .stButton > button *,
         .stDownloadButton > button *,
-        div[data-testid="stFileUploader"] button * {
+        div[data-testid="stFileUploader"] button *,
+        button[data-testid^="baseButton"] * {
             color: #1F2937 !important;
         }
         .stButton > button[kind="primary"],
-        .stDownloadButton > button[kind="primary"] {
+        .stDownloadButton > button[kind="primary"],
+        button[data-testid="baseButton-primary"] {
             background: #1CB51C !important;
             border-color: #1CB51C !important;
             color: #FFFFFF !important;
         }
         .stButton > button[kind="primary"] *,
-        .stDownloadButton > button[kind="primary"] * {
+        .stDownloadButton > button[kind="primary"] *,
+        button[data-testid="baseButton-primary"] * {
             color: #FFFFFF !important;
         }
         div[data-baseweb="select"] > div,
@@ -201,14 +218,50 @@ def _inject_global_styles() -> None:
         div[data-baseweb="menu"] li {
             color: #1F2937 !important;
         }
+        div[data-baseweb="tag"] {
+            background: #D9FAD7 !important;
+            color: #1F2937 !important;
+            border: 1px solid #86C986 !important;
+            border-radius: 999px !important;
+            padding: 0.18rem 0.42rem !important;
+            margin: 0.12rem 0.18rem !important;
+            line-height: 1.25rem !important;
+            min-height: 1.45rem !important;
+        }
+        div[data-baseweb="tag"] span {
+            color: #1F2937 !important;
+            padding-left: 0.18rem !important;
+            padding-right: 0.18rem !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+        }
         div[role="radiogroup"] label,
         div[role="radiogroup"] span,
         div[data-testid="stSlider"] label,
         div[data-testid="stSlider"] span {
             color: #1F2937 !important;
         }
+        button[data-baseweb="tab"],
+        button[data-baseweb="tab"] * {
+            color: #1F2937 !important;
+        }
         div[data-testid="stSlider"] [data-baseweb="slider"] div {
             color: #1F2937 !important;
+        }
+        div[data-testid="stMarkdownContainer"] table {
+            background: #F8FFF8 !important;
+            border-collapse: collapse !important;
+            color: #1F2937 !important;
+        }
+        div[data-testid="stMarkdownContainer"] th,
+        div[data-testid="stMarkdownContainer"] td {
+            border: 1px solid #2F6B2F !important;
+            padding: 0.35rem 0.55rem !important;
+            color: #1F2937 !important;
+        }
+        div[data-testid="stMarkdownContainer"] th {
+            background: #D9FAD7 !important;
+            font-weight: 700 !important;
         }
         div[data-testid="stDataFrame"] * {
             color: #1F2937 !important;
@@ -1745,17 +1798,17 @@ def _render_zone_diagnostics(diagnostics: ZoneJoinDiagnostics) -> None:
 def _render_tables(ranked_nodes: pd.DataFrame, iso_summary: pd.DataFrame, high_risk_high_reward: pd.DataFrame) -> None:
     st.subheader("Tables")
     tab1, tab2, tab3 = st.tabs(["Top Nodes", "ISO Summary", "High Risk / High Reward"])
-    tab1.dataframe(_display_columns(ranked_nodes), use_container_width=True, hide_index=True)
+    tab1.dataframe(_style_light_table(_display_columns(ranked_nodes)), use_container_width=True, hide_index=True)
 
     if iso_summary.empty:
         tab2.info("No ISO summary is available.")
     else:
-        tab2.dataframe(iso_summary, use_container_width=True, hide_index=True)
+        tab2.dataframe(_style_light_table(iso_summary), use_container_width=True, hide_index=True)
 
     if high_risk_high_reward.empty:
         tab3.info("No nodes meet the high-risk/high-reward screen.")
     else:
-        tab3.dataframe(_display_columns(high_risk_high_reward), use_container_width=True, hide_index=True)
+        tab3.dataframe(_style_light_table(_display_columns(high_risk_high_reward)), use_container_width=True, hide_index=True)
 
 
 def _render_monthly_revenue_section(monthly_revenue: pd.DataFrame | None, notes: list[str] | None = None) -> None:
@@ -1805,12 +1858,42 @@ def _render_monthly_revenue_section(monthly_revenue: pd.DataFrame | None, notes:
         chart_col2.warning(bar_result.message)
 
     with st.expander("Monthly revenue long-format data"):
-        st.dataframe(_display_monthly_columns(filtered).head(500), use_container_width=True, hide_index=True)
+        st.dataframe(_style_light_table(_display_monthly_columns(filtered).head(500)), use_container_width=True, hide_index=True)
 
 
 def _render_report(report: str) -> None:
     st.subheader("Report Preview")
     st.markdown(report)
+
+
+def _style_light_table(dataframe: pd.DataFrame) -> object:
+    return dataframe.style.set_properties(
+        **{
+            "background-color": "#F8FFF8",
+            "color": "#1F2937",
+            "border": "1px solid #2F6B2F",
+        }
+    ).set_table_styles(
+        [
+            {
+                "selector": "th",
+                "props": [
+                    ("background-color", "#D9FAD7"),
+                    ("color", "#1F2937"),
+                    ("border", "1px solid #2F6B2F"),
+                    ("font-weight", "700"),
+                ],
+            },
+            {
+                "selector": "td",
+                "props": [
+                    ("background-color", "#F8FFF8"),
+                    ("color", "#1F2937"),
+                    ("border", "1px solid #2F6B2F"),
+                ],
+            },
+        ]
+    )
 
 
 def _render_cleaning_summary(cleaning_summary: CleaningSummary) -> None:
