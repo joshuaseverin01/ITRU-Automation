@@ -138,15 +138,20 @@ For a quick syntax validation:
 python -m py_compile app.py src/*.py
 ```
 
-## Demo Mode
+## Demo Data
 
-If no file is uploaded, the sidebar can load the bundled sample dataset from:
+Bundled PJM demo files are included so first-time users can test the full dashboard workflow without their own Flexworks files:
 
 ```text
-sample_data/sample_flexworks_export.csv
+demo_data/
+  flexworks_export.csv
+  device_to_zone_mapping.csv
+  zones.geojson
 ```
 
-This demo mode is intended for interface walkthroughs and portfolio presentations. It does not replace analysis of real Flexworks simulation exports.
+Use the sidebar **Demo files** expander, click **Load Demo Files**, then click **Run Analysis**. The demo files illustrate the workflow: a Flexworks monthly revenue export, a device-to-zone mapping/device summary file, and zone polygon boundaries.
+
+Users can replace these with their own Flexworks exports, device-to-zone mapping CSV, and zone GeoJSON. Demo data is intended for walkthroughs and portfolio presentations, not investment analysis.
 
 ## Export Outputs
 

@@ -79,6 +79,11 @@ REVENUE_GREEN_COLORSCALE = [
 MATPLOTLIB_REVENUE_PALETTE = ["#eaf7e6", "#cfeec9", "#a6d96a", "#31a354", "#006d2c"]
 MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
 MATPLOTLIB_NEGATIVE_BAR_COLOR = "#b91c1c"
+MATPLOTLIB_FIGURE_BG = "#f3f4f6"
+MATPLOTLIB_PANEL_BG = "#f9fafb"
+MATPLOTLIB_TEXT_COLOR = "#111827"
+MATPLOTLIB_MUTED_TEXT_COLOR = "#1f2937"
+MATPLOTLIB_LABEL_STROKE = "#f9fafb"
 MATPLOTLIB_MAP_PADDING_RATIO = 0.035
 MATPLOTLIB_LABEL_NUDGES = {
     "BGE": (-0.06, -0.03),
@@ -800,38 +805,39 @@ def _draw_pjm_matplotlib_map_bars(
     sort_order: str,
 ) -> Figure:
     figure_width = 10.8 if compact else 14.2
-    figure_height = 4.8 if compact else 7.0
+    figure_height = 5.15 if compact else 7.45
     title_size = 13 if compact else 22
     subtitle_size = 8.5 if compact else 12
     zone_label_size = 5.2 if compact else 7.0
     bar_label_size = 6.2 if compact else 9.0
     y_label_size = 6.0 if compact else 8.4
 
-    figure = Figure(figsize=(figure_width, figure_height), dpi=135, facecolor="white")
+    figure = Figure(figsize=(figure_width, figure_height), dpi=135, facecolor=MATPLOTLIB_FIGURE_BG)
     grid_spec = figure.add_gridspec(
         2,
         2,
-        height_ratios=[0.16, 0.84],
+        height_ratios=[0.23 if compact else 0.24, 0.77 if compact else 0.76],
         width_ratios=[1.62, 1.0],
-        hspace=0.0,
+        hspace=0.14 if compact else 0.16,
         wspace=0.08,
     )
     header_ax = figure.add_subplot(grid_spec[0, :])
     map_ax = figure.add_subplot(grid_spec[1, 0])
     bar_ax = figure.add_subplot(grid_spec[1, 1])
-    figure.subplots_adjust(left=0.02, right=0.985, top=0.98, bottom=0.04)
+    figure.subplots_adjust(left=0.025, right=0.975, top=0.96, bottom=0.05)
 
     header_ax.axis("off")
-    header_ax.set_facecolor("white")
+    header_ax.set_facecolor(MATPLOTLIB_FIGURE_BG)
     header_ax.text(
         0.5,
-        0.70,
+        0.68,
         title,
         ha="center",
         va="center",
         fontsize=title_size,
         fontweight="normal",
-        color="black",
+        color=MATPLOTLIB_TEXT_COLOR,
+        wrap=True,
     )
     header_ax.text(
         0.5,
@@ -841,7 +847,8 @@ def _draw_pjm_matplotlib_map_bars(
         va="center",
         fontsize=subtitle_size,
         fontweight="semibold",
-        color="black",
+        color=MATPLOTLIB_MUTED_TEXT_COLOR,
+        wrap=True,
     )
 
     values_by_zone = {
@@ -863,7 +870,7 @@ def _draw_pjm_matplotlib_map_bars(
     map_ax.set_xlim(xmin - xpad, xmax + xpad)
     map_ax.set_ylim(ymin - ypad, ymax + ypad)
     map_ax.set_aspect("equal", adjustable="box")
-    map_ax.set_facecolor("white")
+    map_ax.set_facecolor(MATPLOTLIB_PANEL_BG)
     map_ax.axis("off")
 
     for geometry in geometries:
@@ -872,7 +879,7 @@ def _draw_pjm_matplotlib_map_bars(
         patch = PathPatch(
             geometry.path,
             facecolor=facecolor,
-            edgecolor="black",
+            edgecolor=MATPLOTLIB_TEXT_COLOR,
             linewidth=0.72 if compact else 0.9,
             antialiased=True,
         )
@@ -891,12 +898,12 @@ def _draw_pjm_matplotlib_map_bars(
             va="center",
             fontsize=_matplotlib_zone_label_size(label_text, zone_label_size),
             fontweight="heavy",
-            color="black",
+            color=MATPLOTLIB_TEXT_COLOR,
             clip_on=False,
         )
         label.set_path_effects(
             [
-                path_effects.Stroke(linewidth=1.25 if not compact else 1.0, foreground="white"),
+                path_effects.Stroke(linewidth=1.35 if not compact else 1.05, foreground=MATPLOTLIB_LABEL_STROKE),
                 path_effects.Normal(),
             ]
         )
@@ -926,15 +933,15 @@ def _draw_pjm_matplotlib_map_bars(
     left_pad = span * 0.22 if x_min < 0 else span * 0.04
     right_pad = span * 0.34
     bar_ax.set_xlim(x_min - left_pad, x_max + right_pad)
-    bar_ax.axvline(0, color="#111827", linewidth=0.65, alpha=0.45)
+    bar_ax.axvline(0, color=MATPLOTLIB_TEXT_COLOR, linewidth=0.65, alpha=0.45)
     bar_ax.set_ylim(-0.6, len(bar_data) - 0.4)
     bar_ax.set_yticks(y_positions)
-    bar_ax.set_yticklabels(bar_zones, fontsize=y_label_size, fontweight="semibold", color="black")
+    bar_ax.set_yticklabels(bar_zones, fontsize=y_label_size, fontweight="semibold", color=MATPLOTLIB_TEXT_COLOR)
     bar_ax.set_xticks([])
-    bar_ax.tick_params(axis="y", length=0, colors="black")
+    bar_ax.tick_params(axis="y", length=0, colors=MATPLOTLIB_TEXT_COLOR)
     bar_ax.tick_params(axis="x", length=0, labelbottom=False)
-    bar_ax.set_title(f"Ranked by {metric_label}", fontsize=9 if compact else 12, color="black", pad=8)
-    bar_ax.set_facecolor("white")
+    bar_ax.set_title(f"Ranked by {metric_label}", fontsize=9 if compact else 12, color=MATPLOTLIB_TEXT_COLOR, pad=14 if not compact else 10)
+    bar_ax.set_facecolor(MATPLOTLIB_PANEL_BG)
     bar_ax.grid(False)
     for spine in bar_ax.spines.values():
         spine.set_visible(False)
@@ -951,7 +958,7 @@ def _draw_pjm_matplotlib_map_bars(
             va="center",
             fontsize=bar_label_size,
             fontweight="semibold",
-            color="black",
+            color=MATPLOTLIB_TEXT_COLOR,
             clip_on=False,
         )
 

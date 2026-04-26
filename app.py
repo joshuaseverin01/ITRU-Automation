@@ -70,8 +70,16 @@ from src.visualization import (
 
 
 PROJECT_ROOT = Path(__file__).parent
-SAMPLE_EXPORT_PATH = PROJECT_ROOT / "sample_data" / "sample_flexworks_export.csv"
-DEFAULT_PJM_GEOJSON_PATH = Path("/Users/joshuaseverin/Desktop/internship/PJM/pjm_zones.geojson")
+DEMO_DATA_DIR = PROJECT_ROOT / "demo_data"
+DEMO_FLEXWORKS_EXPORT_PATH = DEMO_DATA_DIR / "flexworks_export.csv"
+DEMO_DEVICE_ZONE_MAPPING_PATH = DEMO_DATA_DIR / "device_to_zone_mapping.csv"
+DEMO_ZONES_GEOJSON_PATH = DEMO_DATA_DIR / "zones.geojson"
+DEMO_FILE_PATHS = (
+    DEMO_FLEXWORKS_EXPORT_PATH,
+    DEMO_DEVICE_ZONE_MAPPING_PATH,
+    DEMO_ZONES_GEOJSON_PATH,
+)
+DEFAULT_PJM_GEOJSON_PATH = DEMO_ZONES_GEOJSON_PATH
 MAX_MULTI_SNAPSHOTS = 12
 MAX_ANIMATION_FRAMES = 24
 ANALYSIS_STATE_KEY = "flexworks_analysis_state"
@@ -108,7 +116,7 @@ def _render_header() -> None:
 def _render_empty_state(has_demo_data: bool) -> None:
     st.info(
         "Upload a Flexworks export and click Run Analysis to generate market intelligence outputs. "
-        "Upload a Flexworks device summary export and, for time-series views, the monthly revenue export. "
+        "Upload a Flexworks simulation export and, for time-series views, a device-to-zone mapping file. "
         "The dashboard will clean the files, join device metadata to revenue, map PJM zones, rank market performance, "
         "and generate strategy-ready exports."
     )
@@ -123,7 +131,7 @@ def _render_empty_state(has_demo_data: bool) -> None:
         )
     )
     if has_demo_data:
-        st.caption("Demo mode is available from the sidebar using the bundled sample export. It is a lightweight sample for exploring the interface.")
+        st.caption("Demo files are available from the sidebar. Load them, then click Run Analysis to explore the PJM workflow.")
 
 
 def _render_footer() -> None:
@@ -134,33 +142,61 @@ def _render_footer() -> None:
 def _render_app() -> None:
     state = _analysis_state()
     uploaded_exports = st.sidebar.file_uploader(
-        "FlexWorks export CSV(s)",
+        "FlexWorks Export CSVs",
         type=["csv"],
         accept_multiple_files=True,
         key="staged_flexworks_exports",
+        help="Upload one or more Flexworks simulation export files containing revenue or market performance data.",
     )
-    use_sample_data = st.sidebar.checkbox(
-        "Load bundled demo dataset",
-        value=False,
-        disabled=bool(uploaded_exports) or not SAMPLE_EXPORT_PATH.exists(),
-        key="staged_use_sample_data",
+    st.sidebar.caption("Upload one or more Flexworks simulation export files containing revenue or market performance data.")
+    uploaded_lookup = st.sidebar.file_uploader(
+        "Device-to-Zone Mapping CSV",
+        type=["csv"],
+        key="staged_coordinate_lookup",
+        help="Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.",
     )
-    if not uploaded_exports and SAMPLE_EXPORT_PATH.exists():
-        st.sidebar.caption("Demo mode uses the bundled sample export. Upload Flexworks device + monthly files for time-series strategy views.")
+    st.sidebar.caption("Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.")
+    uploaded_pjm_geojson = st.sidebar.file_uploader(
+        "Zones GeoJSON",
+        type=["geojson", "json"],
+        key="staged_pjm_geojson",
+        help="Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.",
+    )
+    st.sidebar.caption("Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.")
+    demo_files_available = _demo_files_available()
+    with st.sidebar.expander("Demo files", expanded=False):
+        st.caption("Use these bundled PJM sample files to test the dashboard without your own Flexworks export.")
+        demo_clicked = st.button(
+            "Load Demo Files",
+            disabled=not demo_files_available,
+            use_container_width=True,
+            key="load_demo_files",
+        )
+        if not demo_files_available:
+            st.warning("Bundled demo files are missing from demo_data/.")
+        elif st.session_state.get("demo_files_loaded"):
+            st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
+    if demo_clicked:
+        st.session_state["demo_files_loaded"] = True
+        st.session_state["demo_files_notice"] = True
+    if st.session_state.pop("demo_files_notice", False):
+        st.sidebar.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
     if uploaded_exports:
-        use_sample_data = False
-    uploaded_lookup = st.sidebar.file_uploader("Coordinate lookup CSV", type=["csv"], key="staged_coordinate_lookup")
-    uploaded_pjm_geojson = st.sidebar.file_uploader("PJM zones GeoJSON", type=["geojson", "json"], key="staged_pjm_geojson")
+        st.session_state["demo_files_loaded"] = False
+    use_demo_files = bool(st.session_state.get("demo_files_loaded")) and demo_files_available
+    if use_demo_files:
+        st.sidebar.caption("Demo inputs staged: Flexworks monthly export, device-to-zone mapping, and zones GeoJSON.")
+
     use_local_pjm_geojson = st.sidebar.checkbox(
-        "Use local PJM zones GeoJSON",
-        value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None,
-        disabled=uploaded_pjm_geojson is not None or not DEFAULT_PJM_GEOJSON_PATH.exists(),
+        "Use bundled zones GeoJSON",
+        value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None and not use_demo_files,
+        disabled=uploaded_pjm_geojson is not None or use_demo_files or not DEFAULT_PJM_GEOJSON_PATH.exists(),
         key="staged_use_local_pjm_geojson",
     )
-    _stage_uploaded_inputs(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_sample_data, use_local_pjm_geojson)
+    _stage_uploaded_inputs(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
 
-    staged_signature = _staged_input_signature(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_sample_data, use_local_pjm_geojson)
-    has_staged_exports = _has_staged_flexworks_input(uploaded_exports, use_sample_data)
+    staged_signature = _staged_input_signature(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
+    has_staged_exports = _has_staged_flexworks_input(uploaded_exports, use_demo_files)
     run_clicked = st.sidebar.button(
         "Run Analysis",
         type="primary",
@@ -170,7 +206,7 @@ def _render_app() -> None:
     if run_clicked:
         _run_analysis_workflow(
             uploaded_exports=uploaded_exports,
-            use_sample_data=use_sample_data,
+            use_demo_files=use_demo_files,
             uploaded_lookup=uploaded_lookup,
             uploaded_pjm_geojson=uploaded_pjm_geojson,
             use_local_pjm_geojson=use_local_pjm_geojson,
@@ -179,7 +215,7 @@ def _render_app() -> None:
         state = _analysis_state()
 
     if not has_staged_exports:
-        st.sidebar.caption("Upload a Flexworks export or enable demo mode before running analysis.")
+        st.sidebar.caption("Upload a Flexworks export or load demo files before running analysis.")
 
     st.sidebar.divider()
     st.sidebar.subheader("Scoring Weights")
@@ -189,7 +225,7 @@ def _render_app() -> None:
         st.error(str(state["analysis_error"]))
 
     if not state.get("analysis_has_run"):
-        _render_empty_state(SAMPLE_EXPORT_PATH.exists())
+        _render_empty_state(demo_files_available)
         return
 
     if staged_signature != state.get("input_signature"):
@@ -288,7 +324,7 @@ def _stage_uploaded_inputs(
     uploaded_exports: list[object] | None,
     uploaded_lookup: object | None,
     uploaded_pjm_geojson: object | None,
-    use_sample_data: bool,
+    use_demo_files: bool,
     use_local_pjm_geojson: bool,
 ) -> None:
     staged_exports = list(uploaded_exports or [])
@@ -298,29 +334,41 @@ def _stage_uploaded_inputs(
     st.session_state["staged_coordinate_lookup_name"] = getattr(uploaded_lookup, "name", None)
     st.session_state["staged_uploaded_geojson_object"] = uploaded_pjm_geojson
     st.session_state["staged_uploaded_geojson_name"] = getattr(uploaded_pjm_geojson, "name", None)
-    st.session_state["staged_use_sample_data_flag"] = use_sample_data
+    st.session_state["staged_use_demo_files_flag"] = use_demo_files
     st.session_state["staged_use_local_pjm_geojson_flag"] = use_local_pjm_geojson
 
 
-def _has_staged_flexworks_input(uploaded_exports: list[object] | None, use_sample_data: bool) -> bool:
-    return bool(uploaded_exports) or bool(use_sample_data and SAMPLE_EXPORT_PATH.exists())
+def _demo_files_available() -> bool:
+    return all(path.exists() for path in DEMO_FILE_PATHS)
+
+
+def _has_staged_flexworks_input(uploaded_exports: list[object] | None, use_demo_files: bool) -> bool:
+    return bool(uploaded_exports) or bool(use_demo_files and _demo_files_available())
 
 
 def _staged_input_signature(
     uploaded_exports: list[object] | None,
     uploaded_lookup: object | None,
     uploaded_pjm_geojson: object | None,
-    use_sample_data: bool,
+    use_demo_files: bool,
     use_local_pjm_geojson: bool,
 ) -> tuple[object, ...]:
-    if use_sample_data:
-        export_signature: object = ("sample", SAMPLE_EXPORT_PATH.name, _path_mtime_ns(SAMPLE_EXPORT_PATH))
+    if use_demo_files:
+        export_signature: object = (
+            "demo",
+            DEMO_FLEXWORKS_EXPORT_PATH.name,
+            _path_mtime_ns(DEMO_FLEXWORKS_EXPORT_PATH),
+            DEMO_DEVICE_ZONE_MAPPING_PATH.name,
+            _path_mtime_ns(DEMO_DEVICE_ZONE_MAPPING_PATH),
+        )
     else:
         export_signature = tuple(_uploaded_file_signature(uploaded_file) for uploaded_file in uploaded_exports or [])
 
     geojson_signature: object
     if uploaded_pjm_geojson is not None:
         geojson_signature = ("uploaded", _uploaded_file_signature(uploaded_pjm_geojson))
+    elif use_demo_files:
+        geojson_signature = ("demo", DEMO_ZONES_GEOJSON_PATH.name, _path_mtime_ns(DEMO_ZONES_GEOJSON_PATH))
     elif use_local_pjm_geojson:
         geojson_signature = ("local", str(DEFAULT_PJM_GEOJSON_PATH), _path_mtime_ns(DEFAULT_PJM_GEOJSON_PATH))
     else:
@@ -354,7 +402,7 @@ def _path_mtime_ns(path: Path) -> int | None:
 def _run_analysis_workflow(
     *,
     uploaded_exports: list[object] | None,
-    use_sample_data: bool,
+    use_demo_files: bool,
     uploaded_lookup: object | None,
     uploaded_pjm_geojson: object | None,
     use_local_pjm_geojson: bool,
@@ -366,7 +414,12 @@ def _run_analysis_workflow(
     try:
         with st.status("Running analysis...", expanded=True) as status:
             st.write("Reading uploaded file...")
-            parsed_exports = _load_flexworks_exports(uploaded_exports, use_sample_data, stop_on_error=True)
+            parsed_exports = _load_flexworks_exports(
+                uploaded_exports,
+                use_demo_files,
+                uploaded_mapping_csv=uploaded_lookup,
+                stop_on_error=True,
+            )
             if not parsed_exports:
                 raise ValueError("No Flexworks exports were loaded. Upload a CSV or enable demo mode, then run analysis.")
             unsupported_files = [file_name for file_name, parsed in parsed_exports if parsed.schema == ExportSchema.UNKNOWN]
@@ -391,12 +444,16 @@ def _run_analysis_workflow(
                 if not validation_result.is_valid:
                     raise ValueError(format_missing_columns_message(validation_result.missing_columns))
                 cleaned_data, cleaning_summary = clean_flexworks_export(node_data)
-                coordinate_lookup = _load_coordinate_lookup(uploaded_lookup)
+                coordinate_lookup = (
+                    None
+                    if _uploaded_mapping_used_as_flexworks_export(parsed_exports, uploaded_lookup)
+                    else _load_coordinate_lookup(uploaded_lookup)
+                )
                 cleaned_with_coordinates, _ = merge_coordinate_lookup(cleaned_data, coordinate_lookup)
             progress.progress(50)
 
             st.write("Matching zones...")
-            pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson)
+            pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson, use_demo_files=use_demo_files)
             progress.progress(70)
 
             st.write("Building market intelligence outputs...")
@@ -416,7 +473,7 @@ def _run_analysis_workflow(
                 "pjm_geojson": pjm_geojson,
                 "monthly_revenue": monthly_revenue,
                 "monthly_notes": monthly_notes,
-                "active_dataset_name": _active_dataset_name(parsed_exports, use_sample_data),
+                "active_dataset_name": _active_dataset_name(parsed_exports, use_demo_files),
             }
             st.session_state["processed_dataframe"] = cleaned_with_coordinates
             st.session_state["active_dataset"] = cleaned_with_coordinates
@@ -433,23 +490,40 @@ def _run_analysis_workflow(
         progress.empty()
 
 
-def _active_dataset_name(parsed_exports: list[tuple[str, ParsedExport]], use_sample_data: bool) -> str:
-    if use_sample_data:
-        return SAMPLE_EXPORT_PATH.name
+def _active_dataset_name(parsed_exports: list[tuple[str, ParsedExport]], use_demo_files: bool) -> str:
+    if use_demo_files:
+        return "Bundled PJM demo files"
     return ", ".join(file_name for file_name, _ in parsed_exports)
+
+
+def _uploaded_mapping_used_as_flexworks_export(
+    parsed_exports: list[tuple[str, ParsedExport]],
+    uploaded_mapping_csv: object | None,
+) -> bool:
+    if uploaded_mapping_csv is None:
+        return False
+    mapping_name = getattr(uploaded_mapping_csv, "name", None)
+    return any(file_name == mapping_name and parsed.schema != ExportSchema.UNKNOWN for file_name, parsed in parsed_exports)
 
 
 def _load_flexworks_exports(
     uploaded_exports: list[object] | None,
-    use_sample_data: bool,
+    use_demo_files: bool,
     *,
+    uploaded_mapping_csv: object | None = None,
     stop_on_error: bool = False,
 ) -> list[tuple[str, ParsedExport]]:
     sources: list[tuple[str, object]] = []
-    if use_sample_data:
-        sources.append((SAMPLE_EXPORT_PATH.name, SAMPLE_EXPORT_PATH))
+    if use_demo_files:
+        if uploaded_mapping_csv is None:
+            sources.append((DEMO_DEVICE_ZONE_MAPPING_PATH.name, DEMO_DEVICE_ZONE_MAPPING_PATH))
+        else:
+            sources.append((getattr(uploaded_mapping_csv, "name", "Device-to-Zone Mapping CSV"), uploaded_mapping_csv))
+        sources.append((DEMO_FLEXWORKS_EXPORT_PATH.name, DEMO_FLEXWORKS_EXPORT_PATH))
     else:
         sources.extend((getattr(uploaded_file, "name", "uploaded CSV"), uploaded_file) for uploaded_file in uploaded_exports or [])
+        if uploaded_mapping_csv is not None:
+            sources.append((getattr(uploaded_mapping_csv, "name", "Device-to-Zone Mapping CSV"), uploaded_mapping_csv))
 
     parsed_exports: list[tuple[str, ParsedExport]] = []
     for file_name, source in sources:
@@ -457,11 +531,23 @@ def _load_flexworks_exports(
             if hasattr(source, "seek"):
                 source.seek(0)
             raw_data = load_csv(source)
-            parsed_exports.append((file_name, parse_flexworks_export(raw_data)))
+            parsed = parse_flexworks_export(raw_data)
+            if source is uploaded_mapping_csv and parsed.schema == ExportSchema.UNKNOWN:
+                continue
+            parsed_exports.append((file_name, parsed))
         except (DataLoadError, ValueError) as exc:
             if stop_on_error:
                 raise ValueError(f"{file_name}: {exc}") from exc
             st.error(f"{file_name}: {exc}")
+
+    if use_demo_files and uploaded_mapping_csv is not None and not any(parsed.node_dataframe is not None for _, parsed in parsed_exports):
+        try:
+            demo_mapping = parse_flexworks_export(load_csv(DEMO_DEVICE_ZONE_MAPPING_PATH))
+            parsed_exports.insert(0, (DEMO_DEVICE_ZONE_MAPPING_PATH.name, demo_mapping))
+        except (DataLoadError, ValueError) as exc:
+            if stop_on_error:
+                raise ValueError(f"{DEMO_DEVICE_ZONE_MAPPING_PATH.name}: {exc}") from exc
+            st.error(f"{DEMO_DEVICE_ZONE_MAPPING_PATH.name}: {exc}")
     return parsed_exports
 
 
@@ -511,11 +597,21 @@ def _load_coordinate_lookup(uploaded_lookup: object | None) -> pd.DataFrame | No
     return lookup
 
 
-def _load_pjm_geojson(uploaded_geojson: object | None, use_local_pjm_geojson: bool) -> PjmZoneGeoJson | None:
-    if uploaded_geojson is None and not use_local_pjm_geojson:
+def _load_pjm_geojson(
+    uploaded_geojson: object | None,
+    use_local_pjm_geojson: bool,
+    *,
+    use_demo_files: bool = False,
+) -> PjmZoneGeoJson | None:
+    if uploaded_geojson is None and not use_local_pjm_geojson and not use_demo_files:
         return None
 
-    source = uploaded_geojson if uploaded_geojson is not None else DEFAULT_PJM_GEOJSON_PATH
+    if uploaded_geojson is not None:
+        source = uploaded_geojson
+    elif use_demo_files:
+        source = DEMO_ZONES_GEOJSON_PATH
+    else:
+        source = DEFAULT_PJM_GEOJSON_PATH
     try:
         if hasattr(source, "seek"):
             source.seek(0)
