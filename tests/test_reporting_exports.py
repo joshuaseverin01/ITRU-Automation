@@ -18,7 +18,7 @@ from src.reporting import (
     plotly_figures_to_html_bytes,
     safe_plotly_png_bytes,
 )
-from src.visualization import gif_bytes_to_html_img, matplotlib_figure_to_png_bytes, matplotlib_figures_to_zip_bytes
+from src.visualization import animation_frames_to_html_player, gif_bytes_to_html_img, matplotlib_figure_to_png_bytes, matplotlib_figures_to_zip_bytes
 
 
 class ReportingExportTests(unittest.TestCase):
@@ -137,6 +137,15 @@ class ReportingExportTests(unittest.TestCase):
 
         self.assertIn('<img src="data:image/gif;base64,', html)
         self.assertIn('alt="PJM &quot;demo&quot;"', html)
+
+    def test_animation_frame_player_returns_controls_and_scrubber(self) -> None:
+        html = animation_frames_to_html_player([b"png-frame-1", b"png-frame-2"], ["January 2024", "February 2024"])
+
+        self.assertIn("data:image/png;base64,", html)
+        self.assertIn("Play", html)
+        self.assertIn("Pause", html)
+        self.assertIn('type="range"', html)
+        self.assertIn("February 2024", html)
 
 
 def _zone_data() -> pd.DataFrame:

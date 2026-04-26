@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.analysis import (
     ALL_REVENUE_CATEGORIES,
@@ -58,6 +59,7 @@ from src.temporal import (
 )
 from src.validation import format_missing_columns_message, validate_coordinate_lookup, validate_required_columns
 from src.visualization import (
+    animation_frames_to_html_player,
     build_iso_zone_snapshot_map_bars,
     build_monthly_revenue_bar,
     build_monthly_revenue_chart,
@@ -196,9 +198,13 @@ def _render_walkthrough_dialog() -> None:
                 ]
             )
         )
-        if st.button("Got it", type="primary", key="dismiss_walkthrough_modal"):
-            _dismiss_walkthrough(st.session_state)
-            _rerun_app()
+        st.button(
+            "Got it",
+            type="primary",
+            key="dismiss_walkthrough_modal",
+            on_click=_dismiss_walkthrough,
+            args=(st.session_state,),
+        )
 
     walkthrough_dialog()
 
@@ -231,16 +237,13 @@ def _render_walkthrough_card() -> None:
         """,
         unsafe_allow_html=True,
     )
-    if st.button("Got it", type="primary", key="dismiss_walkthrough_card"):
-        _dismiss_walkthrough(st.session_state)
-        _rerun_app()
-
-
-def _rerun_app() -> None:
-    if callable(getattr(st, "rerun", None)):
-        st.rerun()
-    elif callable(getattr(st, "experimental_rerun", None)):
-        st.experimental_rerun()
+    st.button(
+        "Got it",
+        type="primary",
+        key="dismiss_walkthrough_card",
+        on_click=_dismiss_walkthrough,
+        args=(st.session_state,),
+    )
 
 
 def _render_app() -> None:
@@ -1213,7 +1216,7 @@ def _render_iso_zone_performance_snapshot(
         frame_labels = [format_time_label(selected_time, granularity) for selected_time in selected_times]
         if len(frame_labels) == 1:
             st.caption("Only one valid time point is selected, so playback contains a single frame.")
-        st.caption("Animation renders as a GIF preview for reliable map styling.")
+        st.caption("Animation renders with matplotlib map frames for reliable zone styling; GIF download remains available.")
 
         cache_key = _animation_gif_cache_key(
             iso_monthly,
@@ -1254,11 +1257,25 @@ def _render_iso_zone_performance_snapshot(
                 f"Animation uses {len(gif_result.frame_labels)} {time_control_label.lower()} key frame(s) from "
                 f"{format_time_range_label(start_time, end_time, granularity)}, with interpolated transition frames for smoother playback."
             )
-            st.markdown(
-                gif_bytes_to_html_img(gif_result.gif_bytes, "PJM zone performance animation"),
-                unsafe_allow_html=True,
-            )
-            st.caption("GIF preview loops in-browser using the same matplotlib map styling as the static views.")
+            player_rendered = False
+            try:
+                player_html = animation_frames_to_html_player(
+                    gif_result.frame_png_bytes,
+                    gif_result.rendered_frame_labels,
+                    "PJM zone performance animation",
+                )
+                if player_html:
+                    components.html(player_html, height=850, scrolling=False)
+                    st.caption("Use the playback controls to pause or scrub through the selected period.")
+                    player_rendered = True
+            except Exception as exc:
+                st.warning(f"Interactive animation controls could not be rendered. Showing GIF fallback instead. {exc}")
+            if not player_rendered:
+                st.markdown(
+                    gif_bytes_to_html_img(gif_result.gif_bytes, "PJM zone performance animation"),
+                    unsafe_allow_html=True,
+                )
+                st.caption("GIF preview loops in-browser using the same matplotlib map styling as the static views.")
             st.download_button(
                 "Download animated GIF",
                 data=gif_result.gif_bytes,

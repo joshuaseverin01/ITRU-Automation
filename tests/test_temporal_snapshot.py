@@ -372,6 +372,27 @@ class TemporalSnapshotTests(unittest.TestCase):
         self.assertTrue(result.gif_bytes.startswith(b"GIF"))
         self.assertEqual(result.frame_labels, ["January 2024", "February 2024"])
 
+    def test_pjm_animation_cumulative_frames_start_from_selected_range(self) -> None:
+        result = create_pjm_animation_gif_bytes(
+            _positive_monthly_zone_frame(),
+            _tiny_pjm_geojson(),
+            metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category="Energy",
+            start_time="2024-02",
+            end_time="2024-04",
+            frame_count=3,
+        )
+
+        bge_values = [
+            float(frame.loc[frame["Zone"] == "BGE", "Selected_Metric"].iloc[0])
+            for frame in result.frame_dataframes
+        ]
+
+        self.assertEqual(result.frame_labels, ["February 2024", "March 2024", "April 2024"])
+        self.assertEqual(bge_values[0], 20)
+        self.assertEqual(bge_values[-1], 90)
+        self.assertEqual(bge_values, sorted(bge_values))
+
     def test_pjm_animation_gif_empty_dataframe_returns_message(self) -> None:
         result = create_pjm_animation_gif_bytes(
             pd.DataFrame(),
@@ -437,6 +458,19 @@ def _monthly_n_month_frame(month_count: int) -> pd.DataFrame:
             "Revenue_Category": ["Energy"] * month_count,
             "Month": months.strftime("%Y-%m").tolist(),
             "Revenue": list(range(month_count)),
+        }
+    )
+
+
+def _positive_monthly_zone_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Device": ["A", "A", "A", "A"],
+            "Zone": ["BGE", "BGE", "BGE", "BGE"],
+            "ISO_Region": ["PJM"] * 4,
+            "Revenue_Category": ["Energy"] * 4,
+            "Month": ["2024-01", "2024-02", "2024-03", "2024-04"],
+            "Revenue": [10, 20, 30, 40],
         }
     )
 

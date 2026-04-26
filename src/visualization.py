@@ -6,6 +6,8 @@ import math
 import os
 import tempfile
 import base64
+import hashlib
+import json
 import zipfile
 from io import BytesIO
 from dataclasses import dataclass
@@ -50,6 +52,8 @@ class GifAnimationResult:
     diagnostics: dict[str, object]
     frame_dataframes: list[pd.DataFrame]
     frame_labels: list[str]
+    frame_png_bytes: list[bytes] | None = None
+    rendered_frame_labels: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +386,89 @@ def gif_bytes_to_html_img(gif_bytes: bytes, alt_text: str = "PJM animation previ
     )
 
 
+def animation_frames_to_html_player(
+    frame_png_bytes: list[bytes] | None,
+    frame_labels: list[str] | None,
+    alt_text: str = "PJM animation frame",
+) -> str:
+    """Return a self-contained HTML frame player with play/pause and scrubbing."""
+
+    if not frame_png_bytes:
+        return ""
+
+    labels = list(frame_labels or [])
+    if len(labels) < len(frame_png_bytes):
+        labels.extend([""] * (len(frame_png_bytes) - len(labels)))
+    labels = labels[: len(frame_png_bytes)]
+    encoded_frames = [f"data:image/png;base64,{base64.b64encode(frame).decode('ascii')}" for frame in frame_png_bytes]
+    player_id = hashlib.sha1(("".join(labels) + str(sum(len(frame) for frame in frame_png_bytes))).encode("utf-8")).hexdigest()[:10]
+    escaped_alt = alt_text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    frames_json = json.dumps(encoded_frames)
+    labels_json = json.dumps(labels)
+    first_label = labels[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if labels else ""
+
+    return f"""
+    <div id="flexworks-player-{player_id}" style="font-family: Arial, sans-serif; width: 100%; color: #111827;">
+      <img
+        id="flexworks-player-{player_id}-image"
+        src="{encoded_frames[0]}"
+        alt="{escaped_alt}"
+        style="width: 100%; height: auto; border-radius: 8px; display: block; background: #f3f4f6;"
+      />
+      <div style="display: flex; align-items: center; gap: 0.55rem; margin-top: 0.6rem;">
+        <button id="flexworks-player-{player_id}-play" style="background: #166534; color: white; border: 0; border-radius: 6px; padding: 0.42rem 0.72rem; cursor: pointer;">Play</button>
+        <button id="flexworks-player-{player_id}-pause" style="background: #334155; color: white; border: 0; border-radius: 6px; padding: 0.42rem 0.72rem; cursor: pointer;">Pause</button>
+        <input id="flexworks-player-{player_id}-slider" type="range" min="0" max="{len(encoded_frames) - 1}" value="0" step="1" style="flex: 1;" />
+        <span id="flexworks-player-{player_id}-label" style="min-width: 9rem; text-align: right; font-size: 0.9rem; color: #1f2937;">{first_label}</span>
+      </div>
+    </div>
+    <script>
+      (() => {{
+        const frames = {frames_json};
+        const labels = {labels_json};
+        const image = document.getElementById("flexworks-player-{player_id}-image");
+        const slider = document.getElementById("flexworks-player-{player_id}-slider");
+        const label = document.getElementById("flexworks-player-{player_id}-label");
+        const playButton = document.getElementById("flexworks-player-{player_id}-play");
+        const pauseButton = document.getElementById("flexworks-player-{player_id}-pause");
+        let frameIndex = 0;
+        let timer = null;
+
+        function showFrame(index) {{
+          frameIndex = Math.max(0, Math.min(frames.length - 1, Number(index)));
+          image.src = frames[frameIndex];
+          slider.value = String(frameIndex);
+          label.textContent = labels[frameIndex] || "";
+        }}
+
+        function pause() {{
+          if (timer !== null) {{
+            window.clearInterval(timer);
+            timer = null;
+          }}
+        }}
+
+        function play() {{
+          if (timer !== null || frames.length <= 1) {{
+            return;
+          }}
+          timer = window.setInterval(() => {{
+            showFrame((frameIndex + 1) % frames.length);
+          }}, 220);
+        }}
+
+        slider.addEventListener("input", () => {{
+          pause();
+          showFrame(slider.value);
+        }});
+        playButton.addEventListener("click", play);
+        pauseButton.addEventListener("click", pause);
+        showFrame(0);
+      }})();
+    </script>
+    """
+
+
 def create_pjm_matplotlib_figure(
     dataframe: pd.DataFrame,
     pjm_geojson: PjmZoneGeoJson | None,
@@ -394,6 +481,7 @@ def create_pjm_matplotlib_figure(
     title: str = "PJM Zone Performance",
     compact: bool = False,
     sort_order: str = "Top zones",
+    metric_range: tuple[float, float] | None = None,
 ) -> tuple[ChartResult, dict[str, object]]:
     """Render a high-fidelity PJM polygon map with ranked bars using matplotlib.
 
@@ -445,6 +533,7 @@ def create_pjm_matplotlib_figure(
             subtitle=subtitle,
             compact=compact,
             sort_order=sort_order,
+            metric_range=metric_range,
         )
         return ChartResult(figure, None), diagnostics
     except Exception as exc:
@@ -479,10 +568,14 @@ def create_pjm_animation_gif_bytes(
 
     try:
         from .analysis import aggregate_zone_metric
-        from .temporal import format_time_label, format_time_range_label, select_evenly_spaced_snapshots
+        from .temporal import filter_time_range, format_time_label, format_time_range_label, select_evenly_spaced_snapshots
 
         requested_frames = max(1, int(frame_count))
-        selected_times = select_evenly_spaced_snapshots(dataframe, start_time, end_time, requested_frames)
+        range_dataframe = filter_time_range(dataframe, start_time, end_time)
+        if range_dataframe.empty:
+            return GifAnimationResult(None, "The selected range has no valid time points for animation.", empty_diagnostics, [], [])
+
+        selected_times = select_evenly_spaced_snapshots(range_dataframe, start_time, end_time, requested_frames)
         if not selected_times:
             return GifAnimationResult(None, "The selected range has no valid time points for animation.", empty_diagnostics, [], [])
 
@@ -490,7 +583,7 @@ def create_pjm_animation_gif_bytes(
         frame_labels: list[str] = []
         for selected_time in selected_times:
             snapshot = aggregate_zone_metric(
-                dataframe,
+                range_dataframe,
                 metric=metric,
                 category=category,
                 time_point=selected_time,
@@ -509,6 +602,7 @@ def create_pjm_animation_gif_bytes(
         if not diagnostics["is_available"]:
             return GifAnimationResult(None, "No animation snapshot zones matched the PJM GeoJSON.", diagnostics, frame_dataframes, frame_labels)
 
+        metric_range = _global_metric_range(frame_dataframes, "Selected_Metric")
         period_label = format_time_range_label(start_time, end_time, str(combined["Time_Granularity"].dropna().iloc[0]) if "Time_Granularity" in combined.columns else "monthly")
         render_frames = _build_interpolated_animation_frames(
             frame_dataframes,
@@ -518,6 +612,8 @@ def create_pjm_animation_gif_bytes(
         )
         total_frames = len(render_frames)
         images: list[Image.Image] = []
+        frame_png_bytes: list[bytes] = []
+        rendered_frame_labels: list[str] = []
         durations: list[int] = []
         for index, (frame_data, frame_label, is_key_frame) in enumerate(render_frames):
             chart_result, _ = create_pjm_matplotlib_figure(
@@ -530,10 +626,14 @@ def create_pjm_animation_gif_bytes(
                 time_context_label="Frame",
                 title="PJM Zone Performance",
                 compact=False,
+                metric_range=metric_range,
             )
             if chart_result.figure is None:
                 return GifAnimationResult(None, chart_result.message or "Animation frame rendering failed.", diagnostics, frame_dataframes, frame_labels)
-            images.append(_matplotlib_figure_to_palette_image(chart_result.figure))
+            frame_png = _matplotlib_figure_to_frame_png_bytes(chart_result.figure)
+            frame_png_bytes.append(frame_png)
+            rendered_frame_labels.append(frame_label)
+            images.append(_png_bytes_to_palette_image(frame_png))
             durations.append(duration_ms if is_key_frame else transition_duration_ms)
             if progress_callback is not None:
                 progress_callback((index + 1) / total_frames)
@@ -549,7 +649,7 @@ def create_pjm_animation_gif_bytes(
             disposal=2,
             optimize=False,
         )
-        return GifAnimationResult(output.getvalue(), None, diagnostics, frame_dataframes, frame_labels)
+        return GifAnimationResult(output.getvalue(), None, diagnostics, frame_dataframes, frame_labels, frame_png_bytes, rendered_frame_labels)
     except Exception as exc:
         return GifAnimationResult(None, f"PJM GIF animation rendering failed: {exc}", empty_diagnostics, [], [])
 
@@ -645,6 +745,24 @@ def _interpolatable_numeric_columns(start_row: dict[str, object], end_row: dict[
     ]
     available = set(start_row).union(end_row)
     return [column for column in preferred_columns if column in available]
+
+
+def _global_metric_range(frame_dataframes: list[pd.DataFrame], metric: str) -> tuple[float, float] | None:
+    values: list[float] = []
+    for frame in frame_dataframes:
+        if metric not in frame.columns:
+            continue
+        numeric_values = pd.to_numeric(frame[metric], errors="coerce").dropna()
+        values.extend(float(value) for value in numeric_values.tolist())
+    if not values:
+        return None
+
+    value_min = min(min(values), 0.0)
+    value_max = max(max(values), 0.0)
+    if math.isclose(value_min, value_max):
+        value_min -= 1.0
+        value_max += 1.0
+    return value_min, value_max
 
 
 def build_iso_zone_snapshot_map_bars(
@@ -1054,6 +1172,7 @@ def _draw_pjm_matplotlib_map_bars(
     subtitle: str,
     compact: bool,
     sort_order: str,
+    metric_range: tuple[float, float] | None = None,
 ) -> Figure:
     figure_width = 10.8 if compact else 14.2
     figure_height = 5.15 if compact else 7.45
@@ -1109,8 +1228,12 @@ def _draw_pjm_matplotlib_map_bars(
     }
     cmap = LinearSegmentedColormap.from_list("flexworks_revenue_green", MATPLOTLIB_REVENUE_PALETTE)
     numeric_values = pd.to_numeric(chart_data[metric], errors="coerce").dropna()
-    value_min = float(numeric_values.min())
-    value_max = float(numeric_values.max())
+    if metric_range is not None:
+        value_min = float(metric_range[0])
+        value_max = float(metric_range[1])
+    else:
+        value_min = float(numeric_values.min())
+        value_max = float(numeric_values.max())
     if math.isclose(value_min, value_max):
         value_min -= 1.0
         value_max += 1.0
@@ -1174,8 +1297,8 @@ def _draw_pjm_matplotlib_map_bars(
     ]
 
     bar_ax.barh(y_positions, bar_values, height=0.62, color=bar_colors, edgecolor="none")
-    x_min = min(0.0, min(bar_values) if bar_values else 0.0)
-    x_max = max(0.0, max(bar_values) if bar_values else 0.0)
+    x_min = min(0.0, value_min)
+    x_max = max(0.0, value_max)
     span = x_max - x_min
     if span <= 0:
         span = max(abs(x_max), 1.0)
@@ -1217,16 +1340,23 @@ def _draw_pjm_matplotlib_map_bars(
 
 
 def _matplotlib_figure_to_palette_image(figure: Figure) -> Image.Image:
+    return _png_bytes_to_palette_image(_matplotlib_figure_to_frame_png_bytes(figure))
+
+
+def _matplotlib_figure_to_frame_png_bytes(figure: Figure) -> bytes:
     buffer = BytesIO()
     figure.savefig(
         buffer,
         format="png",
-        dpi=125,
+        dpi=105,
         facecolor=figure.get_facecolor(),
         bbox_inches="tight",
     )
-    buffer.seek(0)
-    image = Image.open(buffer).convert("RGBA")
+    return buffer.getvalue()
+
+
+def _png_bytes_to_palette_image(png_bytes: bytes) -> Image.Image:
+    image = Image.open(BytesIO(png_bytes)).convert("RGBA")
     adaptive_palette = getattr(getattr(Image, "Palette", object), "ADAPTIVE", None)
     if adaptive_palette is None:
         adaptive_palette = getattr(Image, "ADAPTIVE", 1)
