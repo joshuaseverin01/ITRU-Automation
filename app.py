@@ -35,7 +35,7 @@ from src.geo import (
     merge_coordinate_lookup,
     standardize_coordinate_columns,
 )
-from src.ingestion import ParsedExport, join_monthly_to_device_summary, parse_flexworks_export
+from src.ingestion import ExportSchema, ParsedExport, join_monthly_to_device_summary, parse_flexworks_export
 from src.reporting import (
     build_executive_summary,
     build_zone_kpi_overview,
@@ -65,6 +65,7 @@ from src.visualization import (
     build_top_nodes_bar,
     build_volatility_revenue_scatter,
     create_animated_zone_performance_figure,
+    create_pjm_matplotlib_figure,
 )
 
 
@@ -73,6 +74,7 @@ SAMPLE_EXPORT_PATH = PROJECT_ROOT / "sample_data" / "sample_flexworks_export.csv
 DEFAULT_PJM_GEOJSON_PATH = Path("/Users/joshuaseverin/Desktop/internship/PJM/pjm_zones.geojson")
 MAX_MULTI_SNAPSHOTS = 12
 MAX_ANIMATION_FRAMES = 24
+ANALYSIS_STATE_KEY = "flexworks_analysis_state"
 
 
 def main() -> None:
@@ -105,6 +107,7 @@ def _render_header() -> None:
 
 def _render_empty_state(has_demo_data: bool) -> None:
     st.info(
+        "Upload a Flexworks export and click Run Analysis to generate market intelligence outputs. "
         "Upload a Flexworks device summary export and, for time-series views, the monthly revenue export. "
         "The dashboard will clean the files, join device metadata to revenue, map PJM zones, rank market performance, "
         "and generate strategy-ready exports."
@@ -129,36 +132,74 @@ def _render_footer() -> None:
 
 
 def _render_app() -> None:
-    uploaded_exports = st.sidebar.file_uploader("FlexWorks export CSV(s)", type=["csv"], accept_multiple_files=True)
+    state = _analysis_state()
+    uploaded_exports = st.sidebar.file_uploader(
+        "FlexWorks export CSV(s)",
+        type=["csv"],
+        accept_multiple_files=True,
+        key="staged_flexworks_exports",
+    )
     use_sample_data = st.sidebar.checkbox(
         "Load bundled demo dataset",
         value=False,
         disabled=bool(uploaded_exports) or not SAMPLE_EXPORT_PATH.exists(),
+        key="staged_use_sample_data",
     )
     if not uploaded_exports and SAMPLE_EXPORT_PATH.exists():
         st.sidebar.caption("Demo mode uses the bundled sample export. Upload Flexworks device + monthly files for time-series strategy views.")
     if uploaded_exports:
         use_sample_data = False
-    uploaded_lookup = st.sidebar.file_uploader("Coordinate lookup CSV", type=["csv"])
-    uploaded_pjm_geojson = st.sidebar.file_uploader("PJM zones GeoJSON", type=["geojson", "json"])
+    uploaded_lookup = st.sidebar.file_uploader("Coordinate lookup CSV", type=["csv"], key="staged_coordinate_lookup")
+    uploaded_pjm_geojson = st.sidebar.file_uploader("PJM zones GeoJSON", type=["geojson", "json"], key="staged_pjm_geojson")
     use_local_pjm_geojson = st.sidebar.checkbox(
         "Use local PJM zones GeoJSON",
         value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None,
         disabled=uploaded_pjm_geojson is not None or not DEFAULT_PJM_GEOJSON_PATH.exists(),
+        key="staged_use_local_pjm_geojson",
     )
+    _stage_uploaded_inputs(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_sample_data, use_local_pjm_geojson)
+
+    staged_signature = _staged_input_signature(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_sample_data, use_local_pjm_geojson)
+    has_staged_exports = _has_staged_flexworks_input(uploaded_exports, use_sample_data)
+    run_clicked = st.sidebar.button(
+        "Run Analysis",
+        type="primary",
+        use_container_width=True,
+        disabled=not has_staged_exports,
+    )
+    if run_clicked:
+        _run_analysis_workflow(
+            uploaded_exports=uploaded_exports,
+            use_sample_data=use_sample_data,
+            uploaded_lookup=uploaded_lookup,
+            uploaded_pjm_geojson=uploaded_pjm_geojson,
+            use_local_pjm_geojson=use_local_pjm_geojson,
+            input_signature=staged_signature,
+        )
+        state = _analysis_state()
+
+    if not has_staged_exports:
+        st.sidebar.caption("Upload a Flexworks export or enable demo mode before running analysis.")
 
     st.sidebar.divider()
     st.sidebar.subheader("Scoring Weights")
     score_weights = _render_weight_controls()
 
-    parsed_exports = _load_flexworks_exports(uploaded_exports, use_sample_data)
-    if not parsed_exports:
+    if state.get("analysis_error"):
+        st.error(str(state["analysis_error"]))
+
+    if not state.get("analysis_has_run"):
         _render_empty_state(SAMPLE_EXPORT_PATH.exists())
         return
 
+    if staged_signature != state.get("input_signature"):
+        st.info("New file uploaded. Click Run Analysis to refresh results.")
+        st.sidebar.warning("New file uploaded. Click Run Analysis to refresh results.")
+
+    parsed_exports = state.get("parsed_exports") or []
     _render_schema_status(parsed_exports)
-    node_data = _select_node_dataframe(parsed_exports)
-    monthly_data = _select_monthly_dataframe(parsed_exports)
+    node_data = state.get("node_data")
+    monthly_data = state.get("monthly_data")
 
     if node_data is None:
         st.warning("Monthly revenue data was loaded, but node-level analysis requires a current node schema or device summary export.")
@@ -169,18 +210,15 @@ def _render_app() -> None:
             _render_monthly_revenue_section(monthly_data)
         return
 
-    validation_result = validate_required_columns(node_data)
-    if not validation_result.is_valid:
-        st.error(format_missing_columns_message(validation_result.missing_columns))
-        with st.expander("Available columns"):
-            st.write(validation_result.available_columns)
-        return
-
-    cleaned_data, cleaning_summary = clean_flexworks_export(node_data)
-    coordinate_lookup = _load_coordinate_lookup(uploaded_lookup)
-    pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson)
-    cleaned_with_coordinates, _ = merge_coordinate_lookup(cleaned_data, coordinate_lookup)
-    monthly_revenue, monthly_notes = join_monthly_to_device_summary(monthly_data, cleaned_with_coordinates)
+    cleaned_with_coordinates = state["cleaned_with_coordinates"]
+    cleaning_summary = state["cleaning_summary"]
+    pjm_geojson = state.get("pjm_geojson")
+    monthly_revenue = state.get("monthly_revenue")
+    monthly_notes = state.get("monthly_notes") or []
+    if pjm_geojson is not None:
+        st.sidebar.caption(
+            f"Active PJM GeoJSON: {pjm_geojson.zone_count} zones using `{pjm_geojson.zone_property}`."
+        )
 
     iso_options = _available_iso_regions(cleaned_with_coordinates)
     selected_isos = st.sidebar.multiselect("ISO filter", iso_options, default=iso_options)
@@ -192,8 +230,12 @@ def _render_app() -> None:
         _render_cleaning_summary(cleaning_summary)
         return
 
+    st.session_state["selected_iso_filters"] = selected_isos
+    st.session_state["active_dataset"] = filtered_data
     analyzed_data = add_analysis_columns(filtered_data, score_weights)
+    st.session_state["processed_dataframe"] = analyzed_data
     ranked_nodes = rank_nodes(analyzed_data)
+    st.session_state["ranked_dataframe"] = ranked_nodes
     top_ranked_nodes = ranked_nodes.head(top_n)
     iso_summary = summarize_iso_regions(analyzed_data)
     high_risk_high_reward = identify_high_risk_high_reward(analyzed_data)
@@ -219,7 +261,190 @@ def _render_app() -> None:
     _render_cleaning_summary(cleaning_summary)
 
 
-def _load_flexworks_exports(uploaded_exports: list[object] | None, use_sample_data: bool) -> list[tuple[str, ParsedExport]]:
+def _default_analysis_state() -> dict[str, object]:
+    return {
+        "analysis_has_run": False,
+        "analysis_error": None,
+        "input_signature": None,
+        "parsed_exports": [],
+        "node_data": None,
+        "monthly_data": None,
+        "cleaned_with_coordinates": None,
+        "cleaning_summary": None,
+        "pjm_geojson": None,
+        "monthly_revenue": None,
+        "monthly_notes": [],
+        "active_dataset_name": None,
+    }
+
+
+def _analysis_state() -> dict[str, object]:
+    if ANALYSIS_STATE_KEY not in st.session_state:
+        st.session_state[ANALYSIS_STATE_KEY] = _default_analysis_state()
+    return st.session_state[ANALYSIS_STATE_KEY]
+
+
+def _stage_uploaded_inputs(
+    uploaded_exports: list[object] | None,
+    uploaded_lookup: object | None,
+    uploaded_pjm_geojson: object | None,
+    use_sample_data: bool,
+    use_local_pjm_geojson: bool,
+) -> None:
+    staged_exports = list(uploaded_exports or [])
+    st.session_state["staged_uploaded_csv_objects"] = staged_exports
+    st.session_state["staged_uploaded_csv_names"] = [getattr(uploaded_file, "name", "uploaded CSV") for uploaded_file in staged_exports]
+    st.session_state["staged_coordinate_lookup_object"] = uploaded_lookup
+    st.session_state["staged_coordinate_lookup_name"] = getattr(uploaded_lookup, "name", None)
+    st.session_state["staged_uploaded_geojson_object"] = uploaded_pjm_geojson
+    st.session_state["staged_uploaded_geojson_name"] = getattr(uploaded_pjm_geojson, "name", None)
+    st.session_state["staged_use_sample_data_flag"] = use_sample_data
+    st.session_state["staged_use_local_pjm_geojson_flag"] = use_local_pjm_geojson
+
+
+def _has_staged_flexworks_input(uploaded_exports: list[object] | None, use_sample_data: bool) -> bool:
+    return bool(uploaded_exports) or bool(use_sample_data and SAMPLE_EXPORT_PATH.exists())
+
+
+def _staged_input_signature(
+    uploaded_exports: list[object] | None,
+    uploaded_lookup: object | None,
+    uploaded_pjm_geojson: object | None,
+    use_sample_data: bool,
+    use_local_pjm_geojson: bool,
+) -> tuple[object, ...]:
+    if use_sample_data:
+        export_signature: object = ("sample", SAMPLE_EXPORT_PATH.name, _path_mtime_ns(SAMPLE_EXPORT_PATH))
+    else:
+        export_signature = tuple(_uploaded_file_signature(uploaded_file) for uploaded_file in uploaded_exports or [])
+
+    geojson_signature: object
+    if uploaded_pjm_geojson is not None:
+        geojson_signature = ("uploaded", _uploaded_file_signature(uploaded_pjm_geojson))
+    elif use_local_pjm_geojson:
+        geojson_signature = ("local", str(DEFAULT_PJM_GEOJSON_PATH), _path_mtime_ns(DEFAULT_PJM_GEOJSON_PATH))
+    else:
+        geojson_signature = None
+
+    return (
+        ("exports", export_signature),
+        ("coordinate_lookup", _uploaded_file_signature(uploaded_lookup) if uploaded_lookup is not None else None),
+        ("pjm_geojson", geojson_signature),
+    )
+
+
+def _uploaded_file_signature(uploaded_file: object) -> tuple[str, int | None]:
+    file_name = getattr(uploaded_file, "name", "uploaded file")
+    file_size = getattr(uploaded_file, "size", None)
+    if file_size is None and hasattr(uploaded_file, "getbuffer"):
+        try:
+            file_size = len(uploaded_file.getbuffer())
+        except Exception:
+            file_size = None
+    return str(file_name), int(file_size) if file_size is not None else None
+
+
+def _path_mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _run_analysis_workflow(
+    *,
+    uploaded_exports: list[object] | None,
+    use_sample_data: bool,
+    uploaded_lookup: object | None,
+    uploaded_pjm_geojson: object | None,
+    use_local_pjm_geojson: bool,
+    input_signature: tuple[object, ...],
+) -> None:
+    st.session_state[ANALYSIS_STATE_KEY] = _default_analysis_state()
+    progress = st.progress(0)
+
+    try:
+        with st.status("Running analysis...", expanded=True) as status:
+            st.write("Reading uploaded file...")
+            parsed_exports = _load_flexworks_exports(uploaded_exports, use_sample_data, stop_on_error=True)
+            if not parsed_exports:
+                raise ValueError("No Flexworks exports were loaded. Upload a CSV or enable demo mode, then run analysis.")
+            unsupported_files = [file_name for file_name, parsed in parsed_exports if parsed.schema == ExportSchema.UNKNOWN]
+            if unsupported_files:
+                raise ValueError(
+                    "Unsupported Flexworks export schema for: "
+                    + ", ".join(unsupported_files)
+                    + ". Upload a node summary, device summary, or monthly wide-format export."
+                )
+            progress.progress(25)
+
+            st.write("Cleaning Flexworks export...")
+            node_data = _select_node_dataframe(parsed_exports)
+            monthly_data = _select_monthly_dataframe(parsed_exports)
+            cleaned_with_coordinates = None
+            cleaning_summary = None
+            monthly_revenue = monthly_data
+            monthly_notes: list[str] = []
+
+            if node_data is not None:
+                validation_result = validate_required_columns(node_data)
+                if not validation_result.is_valid:
+                    raise ValueError(format_missing_columns_message(validation_result.missing_columns))
+                cleaned_data, cleaning_summary = clean_flexworks_export(node_data)
+                coordinate_lookup = _load_coordinate_lookup(uploaded_lookup)
+                cleaned_with_coordinates, _ = merge_coordinate_lookup(cleaned_data, coordinate_lookup)
+            progress.progress(50)
+
+            st.write("Matching zones...")
+            pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson)
+            progress.progress(70)
+
+            st.write("Building market intelligence outputs...")
+            if node_data is not None:
+                monthly_revenue, monthly_notes = join_monthly_to_device_summary(monthly_data, cleaned_with_coordinates)
+            progress.progress(90)
+
+            st.session_state[ANALYSIS_STATE_KEY] = {
+                "analysis_has_run": True,
+                "analysis_error": None,
+                "input_signature": input_signature,
+                "parsed_exports": parsed_exports,
+                "node_data": node_data,
+                "monthly_data": monthly_data,
+                "cleaned_with_coordinates": cleaned_with_coordinates,
+                "cleaning_summary": cleaning_summary,
+                "pjm_geojson": pjm_geojson,
+                "monthly_revenue": monthly_revenue,
+                "monthly_notes": monthly_notes,
+                "active_dataset_name": _active_dataset_name(parsed_exports, use_sample_data),
+            }
+            st.session_state["processed_dataframe"] = cleaned_with_coordinates
+            st.session_state["active_dataset"] = cleaned_with_coordinates
+            progress.progress(100)
+            st.write("Analysis complete.")
+            status.update(label="Analysis complete.", state="complete", expanded=False)
+    except Exception as exc:
+        st.session_state[ANALYSIS_STATE_KEY] = {
+            **_default_analysis_state(),
+            "analysis_error": str(exc),
+            "input_signature": input_signature,
+        }
+    finally:
+        progress.empty()
+
+
+def _active_dataset_name(parsed_exports: list[tuple[str, ParsedExport]], use_sample_data: bool) -> str:
+    if use_sample_data:
+        return SAMPLE_EXPORT_PATH.name
+    return ", ".join(file_name for file_name, _ in parsed_exports)
+
+
+def _load_flexworks_exports(
+    uploaded_exports: list[object] | None,
+    use_sample_data: bool,
+    *,
+    stop_on_error: bool = False,
+) -> list[tuple[str, ParsedExport]]:
     sources: list[tuple[str, object]] = []
     if use_sample_data:
         sources.append((SAMPLE_EXPORT_PATH.name, SAMPLE_EXPORT_PATH))
@@ -229,9 +454,13 @@ def _load_flexworks_exports(uploaded_exports: list[object] | None, use_sample_da
     parsed_exports: list[tuple[str, ParsedExport]] = []
     for file_name, source in sources:
         try:
+            if hasattr(source, "seek"):
+                source.seek(0)
             raw_data = load_csv(source)
             parsed_exports.append((file_name, parse_flexworks_export(raw_data)))
         except (DataLoadError, ValueError) as exc:
+            if stop_on_error:
+                raise ValueError(f"{file_name}: {exc}") from exc
             st.error(f"{file_name}: {exc}")
     return parsed_exports
 
@@ -452,7 +681,7 @@ def _render_visualizations(
 
     if map_mode == "Zone choropleth" and zone_result is not None and zone_result.figure is not None:
         st.caption("Polygon map: compares PJM zones to reveal locational value differences before deeper asset diligence.")
-        st.plotly_chart(zone_result.figure, use_container_width=True)
+        _render_chart(st, zone_result.figure)
     elif map_mode == "Zone choropleth" and zone_diagnostics is not None and not zone_diagnostics.is_available:
         st.warning(_build_choropleth_unavailable_message(zone_diagnostics, active_iso_filters))
         st.caption("Point map fallback: plots individual node/device coordinates when polygon joins are unavailable.")
@@ -479,6 +708,17 @@ def _render_visualizations(
         col2.warning(scatter_result.message)
 
     _render_pjm_cumulative_revenue_map_bars(monthly_revenue, pjm_geojson, active_iso_filters)
+
+
+def _render_chart(container: object, figure: object) -> None:
+    """Render either a Plotly figure or a matplotlib figure in Streamlit."""
+
+    if isinstance(figure, go.Figure):
+        container.plotly_chart(figure, use_container_width=True)
+    elif hasattr(figure, "savefig"):
+        container.pyplot(figure, clear_figure=False)
+    else:
+        container.warning("The chart could not be rendered because the figure type is unsupported.")
 
 
 def _render_zone_metric_selector(analyzed_data: pd.DataFrame, pjm_geojson: PjmZoneGeoJson | None) -> str | None:
@@ -688,24 +928,22 @@ def _render_iso_zone_performance_snapshot(
             export_frame = zone_values.copy()
             export_frame["Export_Frame"] = selected_time_label
             export_frames.append(export_frame)
-            chart_result, diagnostics = build_iso_zone_snapshot_map_bars(
+            chart_result, diagnostics = create_pjm_matplotlib_figure(
                 zone_values,
-                iso_region=selected_iso,
                 pjm_geojson=pjm_geojson,
-                metric_column="Selected_Metric",
+                metric="Selected_Metric",
                 metric_label=selected_metric,
-                time_label=selected_time_label,
+                time_selection=selected_time_label,
                 category_label=revenue_category,
                 time_context_label="Selected time",
                 compact=True,
             )
             if chart_result.figure is not None:
-                st.plotly_chart(chart_result.figure, use_container_width=True)
-                export_figures.append(chart_result.figure)
+                _render_chart(st, chart_result.figure)
             else:
                 st.warning(chart_result.message)
                 _render_snapshot_join_diagnostics(diagnostics)
-        if export_frames and export_figures:
+        if export_frames:
             _render_iso_export_report(
                 zone_data=pd.concat(export_frames, ignore_index=True),
                 figures=export_figures,
@@ -816,22 +1054,21 @@ def _render_iso_zone_performance_snapshot(
         _render_point_map(selected_iso_nodes, detect_coordinate_status(selected_iso_nodes))
         return
 
-    chart_result, diagnostics = build_iso_zone_snapshot_map_bars(
+    chart_result, diagnostics = create_pjm_matplotlib_figure(
         zone_values,
-        iso_region=selected_iso,
         pjm_geojson=pjm_geojson,
-        metric_column="Selected_Metric",
+        metric="Selected_Metric",
         metric_label=selected_metric,
-        time_label=time_label,
+        time_selection=time_label,
         category_label=revenue_category,
         time_context_label=time_context_label,
         compact=compact,
     )
     if chart_result.figure is not None:
-        st.plotly_chart(chart_result.figure, use_container_width=True)
+        _render_chart(st, chart_result.figure)
         _render_iso_export_report(
             zone_data=zone_values,
-            figures=[chart_result.figure],
+            figures=[],
             selected_iso=selected_iso,
             selected_metric=selected_metric,
             selected_period=time_label,
@@ -906,6 +1143,8 @@ def _render_iso_export_report(
                 png_col.warning(png_message)
         else:
             png_col.warning("PNG export is available for single-figure modes. HTML export is still available.")
+    else:
+        html_col.info("Interactive HTML visual export is available for Plotly animation. Static PJM maps render with matplotlib.")
 
     md_col.download_button(
         "Summary MD",
@@ -977,7 +1216,7 @@ def _render_pjm_cumulative_revenue_map_bars(
         st.caption(
             "Revenue is aggregated by PJM zone and month. Cumulative revenue sums monthly revenue from the first available month through the selected month."
         )
-        st.plotly_chart(chart_result.figure, use_container_width=True)
+        _render_chart(st, chart_result.figure)
     else:
         st.warning(chart_result.message)
 

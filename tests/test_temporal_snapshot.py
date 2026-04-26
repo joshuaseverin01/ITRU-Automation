@@ -24,7 +24,7 @@ from src.temporal import (
     filter_time_range,
     select_evenly_spaced_snapshots,
 )
-from src.visualization import build_iso_zone_snapshot_map_bars, create_animated_zone_performance_figure
+from src.visualization import build_iso_zone_snapshot_map_bars, create_animated_zone_performance_figure, create_pjm_matplotlib_figure
 
 
 class TemporalSnapshotTests(unittest.TestCase):
@@ -242,6 +242,32 @@ class TemporalSnapshotTests(unittest.TestCase):
         self.assertIsNone(chart.figure)
         self.assertEqual(chart.message, "PJM zone map requires the PJM GeoJSON file.")
         self.assertFalse(diagnostics["is_available"])
+
+    def test_pjm_matplotlib_renderer_creates_static_map_and_bars(self) -> None:
+        snapshot = aggregate_zone_metric(
+            _monthly_zone_frame(),
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            time_point="2024-01",
+        )
+
+        chart, diagnostics = create_pjm_matplotlib_figure(
+            snapshot,
+            _tiny_pjm_geojson(),
+            metric="Selected_Metric",
+            metric_label=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            time_selection="January 2024",
+            category_label="Energy",
+        )
+
+        self.assertTrue(diagnostics["is_available"])
+        self.assertIsNotNone(chart.figure)
+        self.assertTrue(hasattr(chart.figure, "savefig"))
+        self.assertEqual(len(chart.figure.axes), 3)
+        header_text = chart.figure.axes[0].texts[0].get_text()
+        self.assertEqual(header_text, "PJM Zone Performance")
+        bar_labels = [label.get_text() for label in chart.figure.axes[2].get_yticklabels()]
+        self.assertEqual(set(bar_labels), {"BGE", "DPL"})
 
     def test_animation_builder_creates_frames_and_controls(self) -> None:
         dataframe = _monthly_zone_frame()

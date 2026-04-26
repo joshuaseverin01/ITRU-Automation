@@ -105,13 +105,12 @@ class PjmGeoJsonTests(unittest.TestCase):
         chart, chart_diagnostics = build_pjm_zone_choropleth(analyzed, pjm_geojson, "Revenue_per_kW")
         self.assertTrue(chart_diagnostics.is_available)
         self.assertIsNotNone(chart.figure)
-        figure_dict = chart.figure.to_dict()
-        self.assertEqual(figure_dict["layout"]["title"]["text"], "PJM Zone Choropleth: Revenue per kW ($/kW)")
-        self.assertEqual(len(figure_dict["data"][0]["locations"]), 21)
-        self.assertIn("Annualized Revenue", figure_dict["data"][0]["hovertemplate"])
-        self.assertIn("Revenue per kW", figure_dict["data"][0]["hovertemplate"])
-        self.assertEqual(figure_dict["layout"]["coloraxis"]["colorbar"]["tickprefix"], "$")
-        self.assertEqual(figure_dict["layout"]["coloraxis"]["colorbar"]["ticksuffix"], "/kW")
+        self.assertTrue(hasattr(chart.figure, "savefig"))
+        self.assertEqual(chart.figure.axes[0].texts[0].get_text(), "PJM Zone Choropleth: Revenue per kW ($/kW)")
+        map_patches = chart.figure.axes[1].patches
+        self.assertEqual(len(map_patches), 21)
+        bar_labels = [label.get_text() for label in chart.figure.axes[2].get_yticklabels()]
+        self.assertEqual(len(bar_labels), 21)
 
     def test_non_pjm_active_dataset_gets_dataset_fallback_message(self) -> None:
         parsed = parse_flexworks_export(load_csv(Path("sample_data/sample_flexworks_export.csv")))
@@ -180,11 +179,13 @@ class PjmGeoJsonTests(unittest.TestCase):
         self.assertTrue(diagnostics["is_available"], diagnostics)
         self.assertEqual(diagnostics["matched_zone_count"], 21)
         self.assertIsNotNone(chart.figure)
-        figure = chart.figure.to_dict()
-        self.assertIn("PJM Battery Revenue", figure["layout"]["title"]["text"])
-        self.assertIn("Metric: Cumulative Revenue", figure["layout"]["title"]["text"])
-        self.assertIn("Category: Energy", figure["layout"]["title"]["text"])
-        self.assertGreaterEqual(len(figure["data"]), 2)
+        self.assertTrue(hasattr(chart.figure, "savefig"))
+        header_text = chart.figure.axes[0].texts[0].get_text()
+        subtitle_text = chart.figure.axes[0].texts[1].get_text()
+        self.assertIn("PJM Battery Revenue", header_text)
+        self.assertIn("Metric: Cumulative Revenue", subtitle_text)
+        self.assertIn("Category: Energy", subtitle_text)
+        self.assertEqual(len(chart.figure.axes[1].patches), 21)
 
     def test_cumulative_revenue_missing_monthly_and_geojson_fallbacks(self) -> None:
         empty = compute_zone_monthly_revenue(None)
@@ -250,13 +251,16 @@ class PjmGeoJsonTests(unittest.TestCase):
             metric_column="Monthly_Revenue",
             sort_order="Bottom zones",
         )
-        top_bar = next(trace for trace in top_chart.figure.to_dict()["data"] if trace["type"] == "bar")
-        bottom_bar = next(trace for trace in bottom_chart.figure.to_dict()["data"] if trace["type"] == "bar")
-        self.assertEqual(list(top_bar["y"]), ["DPL", "BGE"])
-        self.assertEqual(list(top_bar["text"]), ["-$5", "-$40"])
-        self.assertEqual(list(bottom_bar["y"]), ["BGE", "DPL"])
-        self.assertIn("Metric: Monthly Revenue", top_chart.figure.to_dict()["layout"]["title"]["text"])
-        self.assertIn("Category: Energy", top_chart.figure.to_dict()["layout"]["title"]["text"])
+        top_labels = [label.get_text() for label in top_chart.figure.axes[2].get_yticklabels()]
+        bottom_labels = [label.get_text() for label in bottom_chart.figure.axes[2].get_yticklabels()]
+        top_values = [text.get_text() for text in top_chart.figure.axes[2].texts]
+        self.assertEqual(top_labels, ["BGE", "DPL"])
+        self.assertIn("-$5", top_values)
+        self.assertIn("-$40", top_values)
+        self.assertEqual(bottom_labels, ["DPL", "BGE"])
+        subtitle_text = top_chart.figure.axes[0].texts[1].get_text()
+        self.assertIn("Metric: Monthly Revenue", subtitle_text)
+        self.assertIn("Category: Energy", subtitle_text)
 
     def test_only_one_required_flexworks_file_fails_gracefully_for_cumulative_feature(self) -> None:
         monthly = parse_flexworks_export(load_csv(MONTHLY_EXPORT_PATH))

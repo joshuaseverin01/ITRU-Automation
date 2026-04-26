@@ -17,7 +17,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - Converts Flexworks monthly wide-format revenue exports into long-form time-series data.
 - Joins device summary metadata to monthly revenue using device identifiers.
 - Computes opportunity scores, risk labels, summary metrics, rankings, and zone-level KPI cards.
-- Displays point maps, PJM zone choropleths, cumulative revenue map-and-bar views, and ISO-focused time-series map-and-bar views.
+- Displays point maps, matplotlib-rendered PJM zone maps, cumulative revenue map-and-bar views, and ISO-focused time-series map-and-bar views.
 - Supports snapshot, time-range, multi-snapshot, and animation modes for PJM zonal performance.
 - Generates deterministic Markdown and text executive summaries without external APIs.
 - Exports processed CSVs and interactive Plotly HTML visuals.
@@ -25,7 +25,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 ## Key Features
 
 - **Robust ingestion:** Detects current MVP node uploads, Flexworks device summary exports, and Flexworks monthly wide revenue exports.
-- **PJM zone mapping:** Uses GeoJSON zone polygons for PJM choropleths and ISO-focused performance views.
+- **PJM zone mapping:** Uses GeoJSON zone polygons and matplotlib path rendering for high-contrast PJM maps and ISO-focused performance views.
 - **Strategic KPI overview:** Shows number of zones, selected metric average, top zone, and top-to-bottom spread.
 - **Zonal Market Performance:** Lets users explore PJM performance by exact month/timestamp, selected range, multiple snapshots, or animation.
 - **Interactive visual exports:** Saves current Plotly figures as standalone HTML files.
@@ -38,6 +38,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - Streamlit
 - Pandas
 - Plotly
+- Matplotlib
 - GeoJSON / geospatial mapping
 - unittest
 
@@ -188,4 +189,3 @@ Kaleido is intentionally not required for the core app. If it is unavailable, HT
 - GIF/video animation export
 - Scenario comparison mode
 - Cloud deployment
-

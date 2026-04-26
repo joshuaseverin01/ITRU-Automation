@@ -1,12 +1,28 @@
-"""Defensive Plotly visualization builders."""
+"""Defensive visualization builders for Plotly and matplotlib charts."""
 
 from __future__ import annotations
 
+import math
+import os
+import tempfile
 from dataclasses import dataclass
+from heapq import heappop, heappush
 
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplconfig_flexworks"))
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.patheffects as path_effects
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.figure import Figure
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as MplPath
 from plotly.subplots import make_subplots
 
 from .geo import PjmZoneGeoJson, detect_coordinate_status, prepare_pjm_zone_choropleth_data
@@ -14,10 +30,31 @@ from .geo import PjmZoneGeoJson, detect_coordinate_status, prepare_pjm_zone_chor
 
 @dataclass(frozen=True)
 class ChartResult:
-    """Container for a Plotly figure or a user-facing skip message."""
+    """Container for a figure or a user-facing skip message."""
 
-    figure: go.Figure | None
+    figure: object | None
     message: str | None = None
+
+
+@dataclass(frozen=True)
+class MatplotlibZoneGeometry:
+    """Prepared PJM polygon geometry for high-fidelity matplotlib rendering."""
+
+    zone_name: str
+    normalized_zone: str
+    polygons: tuple[tuple[np.ndarray, ...], ...]
+    path: MplPath
+    label_point: tuple[float, float]
+
+
+@dataclass(order=True)
+class _PolylabelCell:
+    sort_index: float
+    x: float
+    y: float
+    h: float
+    distance: float
+    max_distance: float
 
 
 CHOROPLETH_METRIC_LABELS = {
@@ -39,6 +76,34 @@ REVENUE_GREEN_COLORSCALE = [
     (0.75, "#31a354"),
     (1.0, "#006d2c"),
 ]
+MATPLOTLIB_REVENUE_PALETTE = ["#eaf7e6", "#cfeec9", "#a6d96a", "#31a354", "#006d2c"]
+MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
+MATPLOTLIB_NEGATIVE_BAR_COLOR = "#b91c1c"
+MATPLOTLIB_MAP_PADDING_RATIO = 0.035
+MATPLOTLIB_LABEL_NUDGES = {
+    "BGE": (-0.06, -0.03),
+    "DPL": (0.12, -0.03),
+    "JCPL": (-0.08, -0.02),
+    "RECO": (0.14, 0.09),
+    "METED": (-0.02, -0.03),
+    "PECO": (0.04, -0.05),
+    "PSEG": (0.05, -0.08),
+    "AECO": (0.09, -0.03),
+}
+MATPLOTLIB_LABEL_SIZE_OVERRIDES = {
+    "RECO": 6.1,
+    "JCPL": 6.2,
+    "PSEG": 6.2,
+    "PECO": 6.3,
+    "DPL": 6.3,
+    "AECO": 6.3,
+    "BGE": 6.4,
+    "METED": 6.4,
+}
+_MATPLOTLIB_GEOMETRY_CACHE: dict[
+    tuple[tuple[str, str, int, float, float, float, float], ...],
+    tuple[list[MatplotlibZoneGeometry], tuple[float, float, float, float]],
+] = {}
 
 
 def build_node_map(dataframe: pd.DataFrame) -> ChartResult:
@@ -104,60 +169,19 @@ def build_pjm_zone_choropleth(
     if chart_data.empty:
         return ChartResult(None, "No matched PJM zones have numeric values for the selected metric."), diagnostics
 
-    chart_data = _add_choropleth_hover_fields(chart_data)
-    custom_data_columns = [
-        column
-        for column in (
-            "Zone",
-            "ISO_Region",
-            "Annualized_Revenue_Display",
-            "Revenue_per_kW_Display",
-            "Opportunity_Score_Display",
-            "Risk_Adjusted_Score_Display",
-            "Risk_Label",
-            "Node_Count",
-        )
-        if column in chart_data.columns
-    ]
-
     metric_label = CHOROPLETH_METRIC_LABELS.get(metric_column, metric_column.replace("_", " "))
-    figure = px.choropleth(
+    chart_result, _ = create_pjm_matplotlib_figure(
         chart_data,
-        geojson=join_result.geojson,
-        locations="Zone_Normalized",
-        featureidkey="properties.Zone_Normalized",
-        color=metric_column,
-        hover_name="Zone",
-        custom_data=custom_data_columns,
-        color_continuous_scale="Viridis",
-        labels={metric_column: metric_label},
-        scope="usa",
-        projection="albers usa",
+        pjm_geojson,
+        metric=metric_column,
+        metric_label=metric_label,
+        time_selection="active dataset",
+        category_label="All zones",
+        time_context_label="Dataset",
         title=f"PJM Zone Choropleth: {metric_label}",
+        compact=False,
     )
-    figure.update_traces(
-        marker_line_color="#f8fafc",
-        marker_line_width=1.25,
-        hovertemplate=_choropleth_hover_template(custom_data_columns),
-    )
-    figure.update_geos(
-        fitbounds="locations",
-        visible=True,
-        showland=True,
-        landcolor="#f8fafc",
-        showsubunits=True,
-        subunitcolor="#cbd5e1",
-        countrycolor="#94a3b8",
-        lakecolor="#ffffff",
-        bgcolor="rgba(0,0,0,0)",
-    )
-    figure.update_layout(
-        coloraxis_colorbar=_colorbar_config(metric_column, metric_label),
-        margin=dict(l=0, r=0, t=58, b=0),
-        height=540,
-        title=dict(text=f"PJM Zone Choropleth: {metric_label}", x=0.01, xanchor="left"),
-    )
-    return ChartResult(figure, diagnostics.message), diagnostics
+    return ChartResult(chart_result.figure, chart_result.message or diagnostics.message), diagnostics
 
 
 def build_top_nodes_bar(dataframe: pd.DataFrame, top_n: int = 10) -> ChartResult:
@@ -296,6 +320,75 @@ def build_monthly_revenue_bar(dataframe: pd.DataFrame, group_by: str = "Zone") -
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=380)
     return ChartResult(figure)
+
+
+def create_pjm_matplotlib_figure(
+    dataframe: pd.DataFrame,
+    pjm_geojson: PjmZoneGeoJson | None,
+    metric: str = "Selected_Metric",
+    time_selection: str | None = None,
+    *,
+    metric_label: str | None = None,
+    category_label: str | None = None,
+    time_context_label: str = "Selected time",
+    title: str = "PJM Zone Performance",
+    compact: bool = False,
+    sort_order: str = "Top zones",
+) -> tuple[ChartResult, dict[str, object]]:
+    """Render a high-fidelity PJM polygon map with ranked bars using matplotlib.
+
+    This renderer intentionally avoids Plotly choropleth geometry for the static
+    PJM views. It builds real matplotlib paths from the GeoJSON coordinates and
+    labels zones using a polylabel-style pole-of-inaccessibility calculation.
+    """
+
+    diagnostics = _cumulative_revenue_diagnostics(dataframe, pjm_geojson)
+    if pjm_geojson is None:
+        return ChartResult(None, "PJM zone map requires the PJM GeoJSON file."), diagnostics
+    if dataframe.empty:
+        return ChartResult(None, "No PJM zone rows are available for the selected view."), diagnostics
+    if "Zone_Normalized" not in dataframe.columns:
+        return ChartResult(None, "PJM map rendering requires normalized zone names."), diagnostics
+    if metric not in dataframe.columns:
+        return ChartResult(None, f"{metric} is not available for this PJM map."), diagnostics
+    if not diagnostics["is_available"]:
+        return ChartResult(None, "No PJM zones matched the GeoJSON."), diagnostics
+
+    try:
+        chart_data = dataframe.copy()
+        chart_data[metric] = pd.to_numeric(chart_data[metric], errors="coerce")
+        chart_data = chart_data.loc[chart_data["Zone_Normalized"].isin(pjm_geojson.zones)].dropna(subset=[metric])
+        if chart_data.empty:
+            return ChartResult(None, "Matched PJM zones do not have numeric values for the selected metric."), diagnostics
+
+        chart_data = _collapse_matplotlib_zone_data(chart_data, metric)
+        geometries, bbox = _matplotlib_zone_geometries(pjm_geojson)
+        if not geometries:
+            return ChartResult(None, "The PJM GeoJSON did not contain renderable polygon geometry."), diagnostics
+
+        metric_label = metric_label or _first_display_value(
+            chart_data,
+            "Metric_Label",
+            ISO_ZONE_SNAPSHOT_METRIC_LABELS.get(metric, CHOROPLETH_METRIC_LABELS.get(metric, metric.replace("_", " "))),
+        )
+        time_label = time_selection or _first_display_value(chart_data, "Time_Label", "selected time")
+        category_label = category_label or _first_display_value(chart_data, "Revenue_Category_Filter", "All categories")
+        subtitle = f"{time_context_label}: {time_label} | Metric: {metric_label} | Category: {category_label}"
+
+        figure = _draw_pjm_matplotlib_map_bars(
+            geometries=geometries,
+            bbox=bbox,
+            chart_data=chart_data,
+            metric=metric,
+            metric_label=metric_label,
+            title=title,
+            subtitle=subtitle,
+            compact=compact,
+            sort_order=sort_order,
+        )
+        return ChartResult(figure, None), diagnostics
+    except Exception as exc:
+        return ChartResult(None, f"PJM matplotlib rendering failed: {exc}"), diagnostics
 
 
 def build_iso_zone_snapshot_map_bars(
@@ -661,107 +754,480 @@ def build_pjm_cumulative_revenue_map_bars(
     metric_label = "Monthly Revenue" if metric_column == "Monthly_Revenue" else "Cumulative Revenue"
     selected_month = pd.to_datetime(chart_data["Month"].iloc[0]).strftime("%B %Y")
     category_label = _first_display_value(chart_data, "Revenue_Category_Filter", "All categories")
-    bar_data = chart_data.sort_values(metric_column, ascending=sort_order == "Bottom zones").copy()
-    bar_data["Revenue_Display"] = bar_data[metric_column].apply(_format_currency)
-    chart_data["Revenue_Display"] = chart_data[metric_column].apply(_format_currency)
-    colorscale, zmid = _revenue_colorscale(chart_data[metric_column])
+    chart_data["Metric_Label"] = metric_label
+    chart_data["Time_Label"] = selected_month
+    chart_result, _ = create_pjm_matplotlib_figure(
+        chart_data,
+        pjm_geojson,
+        metric=metric_column,
+        metric_label=metric_label,
+        time_selection=selected_month,
+        category_label=category_label,
+        time_context_label="Selected month",
+        title=f"PJM Battery Revenue — {metric_label} by Zone",
+        compact=False,
+        sort_order=sort_order,
+    )
+    return ChartResult(chart_result.figure, chart_result.message), diagnostics
 
-    figure = make_subplots(
-        rows=1,
-        cols=2,
-        specs=[[{"type": "choropleth"}, {"type": "xy"}]],
-        column_widths=[0.62, 0.38],
-        horizontal_spacing=0.04,
-        subplot_titles=("PJM zone map", f"{sort_order} by {metric_label}"),
+
+def _collapse_matplotlib_zone_data(dataframe: pd.DataFrame, metric: str) -> pd.DataFrame:
+    aggregation: dict[str, object] = {
+        "Zone": ("Zone", _first_non_empty_string),
+        "ISO_Region": ("ISO_Region", _first_non_empty_string) if "ISO_Region" in dataframe.columns else ("Zone", lambda _: "PJM"),
+        metric: (metric, "mean"),
+    }
+    for column in ("Metric_Label", "Time_Label", "Revenue_Category_Filter", "Risk_Label"):
+        if column in dataframe.columns:
+            aggregation[column] = (column, _first_non_empty_string)
+    for column in ("Monthly_Revenue", "Cumulative_Revenue", "Revenue_per_kW", "Annualized_Revenue", "Opportunity_Score", "Risk_Adjusted_Score"):
+        if column in dataframe.columns and column != metric:
+            aggregation[column] = (column, "mean")
+
+    return dataframe.groupby("Zone_Normalized", as_index=False, dropna=False).agg(**aggregation)
+
+
+def _draw_pjm_matplotlib_map_bars(
+    *,
+    geometries: list[MatplotlibZoneGeometry],
+    bbox: tuple[float, float, float, float],
+    chart_data: pd.DataFrame,
+    metric: str,
+    metric_label: str,
+    title: str,
+    subtitle: str,
+    compact: bool,
+    sort_order: str,
+) -> Figure:
+    figure_width = 10.8 if compact else 14.2
+    figure_height = 4.8 if compact else 7.0
+    title_size = 13 if compact else 22
+    subtitle_size = 8.5 if compact else 12
+    zone_label_size = 5.2 if compact else 7.0
+    bar_label_size = 6.2 if compact else 9.0
+    y_label_size = 6.0 if compact else 8.4
+
+    figure = Figure(figsize=(figure_width, figure_height), dpi=135, facecolor="white")
+    grid_spec = figure.add_gridspec(
+        2,
+        2,
+        height_ratios=[0.16, 0.84],
+        width_ratios=[1.62, 1.0],
+        hspace=0.0,
+        wspace=0.08,
     )
-    figure.add_trace(
-        go.Choropleth(
-            geojson=pjm_geojson.geojson,
-            locations=chart_data["Zone_Normalized"],
-            featureidkey="properties.Zone_Normalized",
-            z=chart_data[metric_column],
-            text=chart_data["Zone"],
-            customdata=_custom_data_matrix(
-                chart_data,
-                ["Zone", "ISO_Region", "Monthly_Revenue", "Cumulative_Revenue", "Revenue_Category_Filter"],
-            ),
-            colorscale=colorscale,
-            zmid=zmid,
-            marker_line_color="#f8fafc",
-            marker_line_width=1.2,
-            colorbar=_cumulative_colorbar(metric_label),
-            hovertemplate=_cumulative_map_hover_template(),
-            name=metric_label,
-        ),
-        row=1,
-        col=1,
+    header_ax = figure.add_subplot(grid_spec[0, :])
+    map_ax = figure.add_subplot(grid_spec[1, 0])
+    bar_ax = figure.add_subplot(grid_spec[1, 1])
+    figure.subplots_adjust(left=0.02, right=0.985, top=0.98, bottom=0.04)
+
+    header_ax.axis("off")
+    header_ax.set_facecolor("white")
+    header_ax.text(
+        0.5,
+        0.70,
+        title,
+        ha="center",
+        va="center",
+        fontsize=title_size,
+        fontweight="normal",
+        color="black",
     )
-    label_points = _zone_label_points(pjm_geojson.geojson, chart_data["Zone_Normalized"].tolist(), chart_data["Zone"].tolist())
-    if label_points:
-        figure.add_trace(
-            go.Scattergeo(
-                lon=[point["lon"] for point in label_points],
-                lat=[point["lat"] for point in label_points],
-                text=[point["zone"] for point in label_points],
-                mode="text",
-                textfont=dict(size=9, color="#0f172a"),
-                hoverinfo="skip",
-                showlegend=False,
-            ),
-            row=1,
-            col=1,
+    header_ax.text(
+        0.5,
+        0.24,
+        subtitle,
+        ha="center",
+        va="center",
+        fontsize=subtitle_size,
+        fontweight="semibold",
+        color="black",
+    )
+
+    values_by_zone = {
+        str(row["Zone_Normalized"]): float(row[metric])
+        for _, row in chart_data.iterrows()
+        if _to_float(row.get(metric)) is not None
+    }
+    cmap = LinearSegmentedColormap.from_list("flexworks_revenue_green", MATPLOTLIB_REVENUE_PALETTE)
+    numeric_values = pd.to_numeric(chart_data[metric], errors="coerce").dropna()
+    value_min = float(numeric_values.min())
+    value_max = float(numeric_values.max())
+    if math.isclose(value_min, value_max):
+        value_min -= 1.0
+        value_max += 1.0
+
+    xmin, xmax, ymin, ymax = bbox
+    xpad = max((xmax - xmin) * MATPLOTLIB_MAP_PADDING_RATIO, 0.01)
+    ypad = max((ymax - ymin) * MATPLOTLIB_MAP_PADDING_RATIO, 0.01)
+    map_ax.set_xlim(xmin - xpad, xmax + xpad)
+    map_ax.set_ylim(ymin - ypad, ymax + ypad)
+    map_ax.set_aspect("equal", adjustable="box")
+    map_ax.set_facecolor("white")
+    map_ax.axis("off")
+
+    for geometry in geometries:
+        value = values_by_zone.get(geometry.normalized_zone)
+        facecolor = MATPLOTLIB_NO_DATA_COLOR if value is None else cmap((value - value_min) / (value_max - value_min))
+        patch = PathPatch(
+            geometry.path,
+            facecolor=facecolor,
+            edgecolor="black",
+            linewidth=0.72 if compact else 0.9,
+            antialiased=True,
         )
-    figure.add_trace(
-        go.Bar(
-            x=bar_data[metric_column],
-            y=bar_data["Zone"],
-            orientation="h",
-            text=bar_data["Revenue_Display"],
-            textposition="outside",
-            marker_color=["#b91c1c" if float(value) < 0 else "#386cb0" for value in bar_data[metric_column]],
-            cliponaxis=False,
-            customdata=_custom_data_matrix(
-                bar_data,
-                ["Zone", "ISO_Region", "Monthly_Revenue", "Cumulative_Revenue", "Revenue_Category_Filter"],
-            ),
-            hovertemplate=_cumulative_bar_hover_template(),
-            name=metric_label,
-        ),
-        row=1,
-        col=2,
+        if hasattr(patch, "set_fillrule"):
+            patch.set_fillrule("evenodd")
+        map_ax.add_patch(patch)
+
+    for geometry in geometries:
+        label_x, label_y = _nudge_matplotlib_label(geometry.label_point, geometry.zone_name)
+        label_text = geometry.zone_name
+        label = map_ax.text(
+            label_x,
+            label_y,
+            label_text,
+            ha="center",
+            va="center",
+            fontsize=_matplotlib_zone_label_size(label_text, zone_label_size),
+            fontweight="heavy",
+            color="black",
+            clip_on=False,
+        )
+        label.set_path_effects(
+            [
+                path_effects.Stroke(linewidth=1.25 if not compact else 1.0, foreground="white"),
+                path_effects.Normal(),
+            ]
+        )
+
+    bar_data = chart_data.copy()
+    if sort_order == "Top zones":
+        bar_data = bar_data.sort_values(metric, ascending=True)
+    else:
+        bar_data = bar_data.sort_values(metric, ascending=False)
+
+    bar_values = pd.to_numeric(bar_data[metric], errors="coerce").fillna(0.0).astype(float).tolist()
+    bar_zones = bar_data["Zone"].astype(str).tolist()
+    y_positions = np.arange(len(bar_data), dtype=float)
+    bar_colors = [
+        MATPLOTLIB_NEGATIVE_BAR_COLOR if value < 0 else cmap((value - value_min) / (value_max - value_min))
+        for value in bar_values
+    ]
+
+    bar_ax.barh(y_positions, bar_values, height=0.62, color=bar_colors, edgecolor="none")
+    x_min = min(0.0, min(bar_values) if bar_values else 0.0)
+    x_max = max(0.0, max(bar_values) if bar_values else 0.0)
+    span = x_max - x_min
+    if span <= 0:
+        span = max(abs(x_max), 1.0)
+        x_min = -span * 0.05
+        x_max = span
+    left_pad = span * 0.22 if x_min < 0 else span * 0.04
+    right_pad = span * 0.34
+    bar_ax.set_xlim(x_min - left_pad, x_max + right_pad)
+    bar_ax.axvline(0, color="#111827", linewidth=0.65, alpha=0.45)
+    bar_ax.set_ylim(-0.6, len(bar_data) - 0.4)
+    bar_ax.set_yticks(y_positions)
+    bar_ax.set_yticklabels(bar_zones, fontsize=y_label_size, fontweight="semibold", color="black")
+    bar_ax.set_xticks([])
+    bar_ax.tick_params(axis="y", length=0, colors="black")
+    bar_ax.tick_params(axis="x", length=0, labelbottom=False)
+    bar_ax.set_title(f"Ranked by {metric_label}", fontsize=9 if compact else 12, color="black", pad=8)
+    bar_ax.set_facecolor("white")
+    bar_ax.grid(False)
+    for spine in bar_ax.spines.values():
+        spine.set_visible(False)
+
+    label_offset = span * 0.018
+    for y_position, value in zip(y_positions, bar_values):
+        label_x = value + label_offset if value >= 0 else value - label_offset
+        ha = "left" if value >= 0 else "right"
+        bar_ax.text(
+            label_x,
+            y_position,
+            _format_metric_value(value, metric_label),
+            ha=ha,
+            va="center",
+            fontsize=bar_label_size,
+            fontweight="semibold",
+            color="black",
+            clip_on=False,
+        )
+
+    return figure
+
+
+def _matplotlib_zone_geometries(pjm_geojson: PjmZoneGeoJson) -> tuple[list[MatplotlibZoneGeometry], tuple[float, float, float, float]]:
+    cache_key = _matplotlib_geojson_cache_key(pjm_geojson)
+    if cache_key in _MATPLOTLIB_GEOMETRY_CACHE:
+        return _MATPLOTLIB_GEOMETRY_CACHE[cache_key]
+
+    geometries: list[MatplotlibZoneGeometry] = []
+    all_x: list[float] = []
+    all_y: list[float] = []
+
+    for feature in pjm_geojson.geojson.get("features", []):
+        properties = feature.get("properties", {})
+        zone_name = str(properties.get("Zone") or properties.get(pjm_geojson.zone_property) or "").strip()
+        normalized_zone = str(properties.get("Zone_Normalized") or "").strip()
+        if not zone_name or not normalized_zone:
+            continue
+
+        polygons = _extract_geojson_polygons(feature.get("geometry", {}))
+        if not polygons:
+            continue
+
+        path = _build_matplotlib_polygon_path(polygons)
+        label_polygon = max(polygons, key=_polygon_outer_area)
+        label_point = _polylabel(label_polygon)
+
+        for polygon in polygons:
+            for ring in polygon:
+                all_x.extend(ring[:, 0].tolist())
+                all_y.extend(ring[:, 1].tolist())
+
+        geometries.append(
+            MatplotlibZoneGeometry(
+                zone_name=zone_name,
+                normalized_zone=normalized_zone,
+                polygons=polygons,
+                path=path,
+                label_point=label_point,
+            )
+        )
+
+    if not all_x or not all_y:
+        return [], (0.0, 1.0, 0.0, 1.0)
+    result = geometries, (min(all_x), max(all_x), min(all_y), max(all_y))
+    _MATPLOTLIB_GEOMETRY_CACHE[cache_key] = result
+    return result
+
+
+def _matplotlib_geojson_cache_key(pjm_geojson: PjmZoneGeoJson) -> tuple[tuple[str, str, int, float, float, float, float], ...]:
+    key_parts: list[tuple[str, str, int, float, float, float, float]] = []
+    for feature in pjm_geojson.geojson.get("features", []):
+        properties = feature.get("properties", {})
+        geometry = feature.get("geometry", {})
+        normalized_zone = str(properties.get("Zone_Normalized") or "").strip()
+        geometry_type = str(geometry.get("type") or "")
+        point_count, min_x, max_x, min_y, max_y = _coordinate_signature(geometry.get("coordinates"))
+        key_parts.append((normalized_zone, geometry_type, point_count, min_x, max_x, min_y, max_y))
+    return tuple(sorted(key_parts))
+
+
+def _coordinate_signature(coordinates: object) -> tuple[int, float, float, float, float]:
+    points: list[tuple[float, float]] = []
+    _collect_coordinate_points(coordinates, points)
+    if not points:
+        return 0, 0.0, 0.0, 0.0, 0.0
+    x_values = [point[0] for point in points]
+    y_values = [point[1] for point in points]
+    return (
+        len(points),
+        round(min(x_values), 6),
+        round(max(x_values), 6),
+        round(min(y_values), 6),
+        round(max(y_values), 6),
     )
-    figure.update_geos(
-        fitbounds="locations",
-        visible=True,
-        showland=True,
-        landcolor="#f8fafc",
-        showsubunits=True,
-        subunitcolor="#cbd5e1",
-        countrycolor="#94a3b8",
-        bgcolor="rgba(0,0,0,0)",
-        row=1,
-        col=1,
-    )
-    figure.update_yaxes(autorange="reversed", title_text=None, automargin=True, row=1, col=2)
-    figure.update_xaxes(title_text=metric_label, tickformat="$,.0f", zeroline=True, automargin=True, row=1, col=2)
-    figure.update_layout(
-        title=dict(
-            text=(
-                f"PJM Battery Revenue — {metric_label} by Zone"
-                f"<br><sup>Selected month: {selected_month} | Metric: {metric_label} | Category: {category_label}</sup>"
-            ),
-            x=0.01,
-            xanchor="left",
-            font=dict(size=20),
-        ),
-        showlegend=False,
-        height=620,
-        margin=dict(l=0, r=28, t=104, b=76),
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
-        bargap=0.16,
-    )
-    return ChartResult(figure, None), diagnostics
+
+
+def _collect_coordinate_points(value: object, points: list[tuple[float, float]]) -> None:
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+            points.append((float(value[0]), float(value[1])))
+            return
+        for item in value:
+            _collect_coordinate_points(item, points)
+
+
+def _extract_geojson_polygons(geometry: object) -> tuple[tuple[np.ndarray, ...], ...]:
+    if not isinstance(geometry, dict):
+        return tuple()
+
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if geometry_type == "Polygon":
+        polygon_groups = [coordinates]
+    elif geometry_type == "MultiPolygon":
+        polygon_groups = coordinates
+    else:
+        return tuple()
+
+    polygons: list[tuple[np.ndarray, ...]] = []
+    for polygon in polygon_groups or []:
+        rings: list[np.ndarray] = []
+        for ring in polygon or []:
+            ring_array = np.asarray(ring, dtype=float)
+            if ring_array.ndim != 2 or ring_array.shape[0] < 3 or ring_array.shape[1] < 2:
+                continue
+            ring_array = ring_array[:, :2]
+            if not np.allclose(ring_array[0], ring_array[-1]):
+                ring_array = np.vstack([ring_array, ring_array[0]])
+            rings.append(ring_array)
+        if rings:
+            polygons.append(tuple(rings))
+    return tuple(polygons)
+
+
+def _build_matplotlib_polygon_path(polygons: tuple[tuple[np.ndarray, ...], ...]) -> MplPath:
+    vertices: list[list[float]] = []
+    codes: list[int] = []
+
+    for polygon in polygons:
+        for ring in polygon:
+            for index, (x_value, y_value) in enumerate(ring):
+                vertices.append([float(x_value), float(y_value)])
+                if index == 0:
+                    codes.append(MplPath.MOVETO)
+                elif index == len(ring) - 1:
+                    codes.append(MplPath.CLOSEPOLY)
+                else:
+                    codes.append(MplPath.LINETO)
+
+    return MplPath(np.asarray(vertices, dtype=float), codes)
+
+
+def _polygon_outer_area(polygon: tuple[np.ndarray, ...]) -> float:
+    if not polygon:
+        return 0.0
+    return abs(_ring_signed_area(polygon[0]))
+
+
+def _ring_signed_area(ring: np.ndarray) -> float:
+    if len(ring) < 3:
+        return 0.0
+    x_values = ring[:, 0]
+    y_values = ring[:, 1]
+    return float(0.5 * np.sum((x_values[:-1] * y_values[1:]) - (x_values[1:] * y_values[:-1])))
+
+
+def _point_in_ring(point: tuple[float, float], ring: np.ndarray) -> bool:
+    px, py = point
+    inside = False
+    for index in range(len(ring) - 1):
+        x1, y1 = ring[index]
+        x2, y2 = ring[index + 1]
+        if ((y1 > py) != (y2 > py)) and (px < (x2 - x1) * (py - y1) / ((y2 - y1) or 1e-12) + x1):
+            inside = not inside
+    return inside
+
+
+def _point_in_polygon(point: tuple[float, float], polygon: tuple[np.ndarray, ...]) -> bool:
+    if not polygon or not _point_in_ring(point, polygon[0]):
+        return False
+    return not any(_point_in_ring(point, hole) for hole in polygon[1:])
+
+
+def _point_segment_distance_sq(point: tuple[float, float], start: np.ndarray, end: np.ndarray) -> float:
+    px, py = point
+    ax, ay = start
+    bx, by = end
+    dx = bx - ax
+    dy = by - ay
+    if dx == 0 and dy == 0:
+        return float((px - ax) ** 2 + (py - ay) ** 2)
+
+    t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, float(t)))
+    proj_x = ax + (t * dx)
+    proj_y = ay + (t * dy)
+    return float((px - proj_x) ** 2 + (py - proj_y) ** 2)
+
+
+def _signed_distance(point: tuple[float, float], polygon: tuple[np.ndarray, ...]) -> float:
+    min_dist_sq = float("inf")
+    for ring in polygon:
+        for index in range(len(ring) - 1):
+            min_dist_sq = min(min_dist_sq, _point_segment_distance_sq(point, ring[index], ring[index + 1]))
+
+    distance = math.sqrt(min_dist_sq)
+    return distance if _point_in_polygon(point, polygon) else -distance
+
+
+def _polygon_centroid(ring: np.ndarray) -> tuple[float, float]:
+    area_twice = 0.0
+    centroid_x = 0.0
+    centroid_y = 0.0
+
+    for index in range(len(ring) - 1):
+        x1, y1 = ring[index]
+        x2, y2 = ring[index + 1]
+        cross = x1 * y2 - x2 * y1
+        area_twice += cross
+        centroid_x += (x1 + x2) * cross
+        centroid_y += (y1 + y2) * cross
+
+    if abs(area_twice) < 1e-12:
+        return float(np.mean(ring[:, 0])), float(np.mean(ring[:, 1]))
+
+    factor = 1.0 / (3.0 * area_twice)
+    return float(centroid_x * factor), float(centroid_y * factor)
+
+
+def _make_polylabel_cell(x_value: float, y_value: float, half_size: float, polygon: tuple[np.ndarray, ...]) -> _PolylabelCell:
+    distance = _signed_distance((x_value, y_value), polygon)
+    max_distance = distance + half_size * math.sqrt(2)
+    return _PolylabelCell(-max_distance, x_value, y_value, half_size, distance, max_distance)
+
+
+def _polylabel(polygon: tuple[np.ndarray, ...], precision: float = 0.01) -> tuple[float, float]:
+    outer = polygon[0]
+    min_x = float(np.min(outer[:, 0]))
+    min_y = float(np.min(outer[:, 1]))
+    max_x = float(np.max(outer[:, 0]))
+    max_y = float(np.max(outer[:, 1]))
+    width = max_x - min_x
+    height = max_y - min_y
+    cell_size = min(width, height)
+    if cell_size == 0:
+        return float(outer[0, 0]), float(outer[0, 1])
+
+    half_size = cell_size / 2.0
+    queue: list[_PolylabelCell] = []
+    x_value = min_x
+    while x_value < max_x:
+        y_value = min_y
+        while y_value < max_y:
+            heappush(queue, _make_polylabel_cell(x_value + half_size, y_value + half_size, half_size, polygon))
+            y_value += cell_size
+        x_value += cell_size
+
+    centroid = _polygon_centroid(outer)
+    best_cell = _make_polylabel_cell(centroid[0], centroid[1], 0.0, polygon)
+    bbox_cell = _make_polylabel_cell((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, 0.0, polygon)
+    if bbox_cell.distance > best_cell.distance:
+        best_cell = bbox_cell
+
+    while queue:
+        cell = heappop(queue)
+        if cell.distance > best_cell.distance:
+            best_cell = cell
+        if cell.max_distance - best_cell.distance <= precision:
+            continue
+        next_half_size = cell.h / 2.0
+        heappush(queue, _make_polylabel_cell(cell.x - next_half_size, cell.y - next_half_size, next_half_size, polygon))
+        heappush(queue, _make_polylabel_cell(cell.x + next_half_size, cell.y - next_half_size, next_half_size, polygon))
+        heappush(queue, _make_polylabel_cell(cell.x - next_half_size, cell.y + next_half_size, next_half_size, polygon))
+        heappush(queue, _make_polylabel_cell(cell.x + next_half_size, cell.y + next_half_size, next_half_size, polygon))
+
+    return float(best_cell.x), float(best_cell.y)
+
+
+def _nudge_matplotlib_label(label_point: tuple[float, float], zone_name: str) -> tuple[float, float]:
+    offset_x, offset_y = MATPLOTLIB_LABEL_NUDGES.get(str(zone_name).upper(), (0.0, 0.0))
+    return label_point[0] + offset_x, label_point[1] + offset_y
+
+
+def _matplotlib_zone_label_size(zone_name: str, default_size: float) -> float:
+    return MATPLOTLIB_LABEL_SIZE_OVERRIDES.get(str(zone_name).upper(), default_size)
+
+
+def _first_non_empty_string(values: pd.Series) -> str:
+    for value in values:
+        if pd.notna(value) and str(value).strip():
+            return str(value).strip()
+    return ""
 
 
 def _positive_size_values(dataframe: pd.DataFrame, column: str) -> pd.Series | None:
