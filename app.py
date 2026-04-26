@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +50,7 @@ from src.temporal import (
     TIME_GRANULARITY_MONTHLY,
     TIME_GRANULARITY_NONE,
     available_time_points,
+    default_frame_count_for_range,
     detect_time_granularity,
     format_time_label,
     format_time_range_label,
@@ -84,8 +86,9 @@ DEMO_FILE_PATHS = (
 )
 DEFAULT_PJM_GEOJSON_PATH = DEMO_ZONES_GEOJSON_PATH
 MAX_MULTI_SNAPSHOTS = 12
-MAX_ANIMATION_FRAMES = 24
+MAX_ANIMATION_FRAMES = 60
 ANALYSIS_STATE_KEY = "flexworks_analysis_state"
+WALKTHROUGH_STATE_KEY = "show_walkthrough"
 
 
 def main() -> None:
@@ -142,8 +145,110 @@ def _render_footer() -> None:
     st.caption("Built to convert Flexworks simulation outputs into investment-ready market intelligence.")
 
 
+def _ensure_walkthrough_state(session_state: MutableMapping[str, object]) -> bool:
+    """Initialize and return the first-time walkthrough visibility flag."""
+
+    if WALKTHROUGH_STATE_KEY not in session_state:
+        session_state[WALKTHROUGH_STATE_KEY] = True
+    return bool(session_state[WALKTHROUGH_STATE_KEY])
+
+
+def _dismiss_walkthrough(session_state: MutableMapping[str, object]) -> None:
+    """Hide the walkthrough for the current Streamlit session."""
+
+    session_state[WALKTHROUGH_STATE_KEY] = False
+
+
+def _reopen_walkthrough(session_state: MutableMapping[str, object]) -> None:
+    """Show the walkthrough again in the current Streamlit session."""
+
+    session_state[WALKTHROUGH_STATE_KEY] = True
+
+
+def _render_walkthrough() -> None:
+    if not _ensure_walkthrough_state(st.session_state):
+        return
+
+    if callable(getattr(st, "dialog", None)):
+        try:
+            _render_walkthrough_dialog()
+            return
+        except Exception:
+            _render_walkthrough_card()
+            return
+
+    _render_walkthrough_card()
+
+
+def _render_walkthrough_dialog() -> None:
+    dialog = getattr(st, "dialog")
+
+    @dialog("Welcome to the Flexworks Arbitrage Intelligence Dashboard")
+    def walkthrough_dialog() -> None:
+        st.write("This tool converts Flexworks battery arbitrage simulations into zone-level market intelligence.")
+        st.markdown(
+            "\n".join(
+                [
+                    "1. Load demo files or upload your own Flexworks export CSV, mapping CSV, and zones GeoJSON.",
+                    "2. Click **Run Analysis** to process the data.",
+                    "3. Explore Snapshot, Time range, Multi-snapshot, and Animation modes.",
+                    "4. Download PNGs, GIFs, CSVs, and summaries from the Strategy Export Center.",
+                ]
+            )
+        )
+        if st.button("Got it", type="primary", key="dismiss_walkthrough_modal"):
+            _dismiss_walkthrough(st.session_state)
+            _rerun_app()
+
+    walkthrough_dialog()
+
+
+def _render_walkthrough_card() -> None:
+    st.markdown(
+        """
+        <div style="
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 1.1rem 1.25rem;
+            margin: 0.25rem 0 1.25rem 0;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+            color: #111827;
+        ">
+            <h3 style="margin: 0 0 0.5rem 0; color: #111827;">
+                Welcome to the Flexworks Arbitrage Intelligence Dashboard
+            </h3>
+            <p style="margin: 0 0 0.7rem 0; color: #1f2937;">
+                This tool converts Flexworks battery arbitrage simulations into zone-level market intelligence.
+            </p>
+            <ol style="margin: 0 0 0 1.25rem; padding: 0; color: #1f2937;">
+                <li>Load demo files or upload your own Flexworks export CSV, mapping CSV, and zones GeoJSON.</li>
+                <li>Click <strong>Run Analysis</strong> to process the data.</li>
+                <li>Explore Snapshot, Time range, Multi-snapshot, and Animation modes.</li>
+                <li>Download PNGs, GIFs, CSVs, and summaries from the Strategy Export Center.</li>
+            </ol>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Got it", type="primary", key="dismiss_walkthrough_card"):
+        _dismiss_walkthrough(st.session_state)
+        _rerun_app()
+
+
+def _rerun_app() -> None:
+    if callable(getattr(st, "rerun", None)):
+        st.rerun()
+    elif callable(getattr(st, "experimental_rerun", None)):
+        st.experimental_rerun()
+
+
 def _render_app() -> None:
     state = _analysis_state()
+    if st.sidebar.button("Show walkthrough", use_container_width=True, key="show_walkthrough_button"):
+        _reopen_walkthrough(st.session_state)
+    _render_walkthrough()
+
     uploaded_exports = st.sidebar.file_uploader(
         "FlexWorks Export CSVs",
         type=["csv"],
@@ -1073,20 +1178,27 @@ def _render_iso_zone_performance_snapshot(
             index=len(valid_end_labels) - 1,
             key="iso_animation_end",
         )
-        max_frames = min(MAX_ANIMATION_FRAMES, len(valid_end_labels))
-        requested_frames = animation_col3.slider(
-            "Frames",
-            min_value=1,
-            max_value=max_frames,
-            value=min(8, max_frames),
-            step=1,
-            key="iso_animation_frame_count",
-        )
         start_time = time_by_label[start_label]
         end_time = time_by_label[end_label]
         if start_time > end_time:
             st.warning("Start time must be before or equal to end time. Choose a later end time to continue.")
             return
+        default_key_frames = default_frame_count_for_range(category_filtered, start_time, end_time, MAX_ANIMATION_FRAMES)
+        if default_key_frames <= 0:
+            st.warning("The selected range has no valid time points for animation.")
+            return
+        requested_frames = animation_col3.slider(
+            "Monthly/key frames",
+            min_value=1,
+            max_value=default_key_frames,
+            value=default_key_frames,
+            step=1,
+            key="iso_animation_frame_count",
+            help=(
+                f"Uses every available {time_control_label.lower()} in the selected range when it fits under "
+                f"the {MAX_ANIMATION_FRAMES}-frame cap; otherwise it samples evenly."
+            ),
+        )
         selected_times = select_evenly_spaced_snapshots(category_filtered, start_time, end_time, requested_frames)
         if not selected_times:
             st.warning("The selected range has no valid time points for animation.")
@@ -1119,7 +1231,7 @@ def _render_iso_zone_performance_snapshot(
             with st.status("Rendering PJM animation GIF...", expanded=True) as status:
                 st.write("Building matplotlib map frames...")
                 gif_result = create_pjm_animation_gif_bytes(
-                    iso_monthly,
+                    category_filtered,
                     pjm_geojson,
                     metric=selected_metric,
                     category=revenue_category,
@@ -1139,8 +1251,8 @@ def _render_iso_zone_performance_snapshot(
         diagnostics = gif_result.diagnostics
         if gif_result.gif_bytes is not None:
             st.caption(
-                f"Animation uses {len(gif_result.frame_labels)} evenly spaced {time_control_label.lower()} frame(s) from "
-                f"{format_time_range_label(start_time, end_time, granularity)} to show how zonal performance evolves over time."
+                f"Animation uses {len(gif_result.frame_labels)} {time_control_label.lower()} key frame(s) from "
+                f"{format_time_range_label(start_time, end_time, granularity)}, with interpolated transition frames for smoother playback."
             )
             st.markdown(
                 gif_bytes_to_html_img(gif_result.gif_bytes, "PJM zone performance animation"),

@@ -86,13 +86,13 @@ ISO_ZONE_SNAPSHOT_METRIC_LABELS = {
     "Selected_Metric": "Selected Metric",
 }
 REVENUE_GREEN_COLORSCALE = [
-    (0.0, "#eaf7e6"),
-    (0.25, "#cfeec9"),
-    (0.5, "#a6d96a"),
-    (0.75, "#31a354"),
+    (0.0, "#bfe7b8"),
+    (0.25, "#8fd08b"),
+    (0.5, "#4fb96a"),
+    (0.75, "#238b45"),
     (1.0, "#006d2c"),
 ]
-MATPLOTLIB_REVENUE_PALETTE = ["#eaf7e6", "#cfeec9", "#a6d96a", "#31a354", "#006d2c"]
+MATPLOTLIB_REVENUE_PALETTE = ["#bfe7b8", "#8fd08b", "#4fb96a", "#238b45", "#006d2c"]
 MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
 MATPLOTLIB_NEGATIVE_BAR_COLOR = "#b91c1c"
 MATPLOTLIB_FIGURE_BG = "#f3f4f6"
@@ -461,7 +461,10 @@ def create_pjm_animation_gif_bytes(
     frame_count: int,
     category: str,
     iso_region: str = "PJM",
-    duration_ms: int = 900,
+    duration_ms: int = 450,
+    transition_frames_between_keyframes: int = 2,
+    transition_duration_ms: int = 120,
+    max_rendered_frames: int = 180,
     progress_callback: Callable[[float], None] | None = None,
 ) -> GifAnimationResult:
     """Create a PJM map-and-bars GIF using the matplotlib static renderer."""
@@ -507,9 +510,16 @@ def create_pjm_animation_gif_bytes(
             return GifAnimationResult(None, "No animation snapshot zones matched the PJM GeoJSON.", diagnostics, frame_dataframes, frame_labels)
 
         period_label = format_time_range_label(start_time, end_time, str(combined["Time_Granularity"].dropna().iloc[0]) if "Time_Granularity" in combined.columns else "monthly")
-        total_frames = len(frame_dataframes)
+        render_frames = _build_interpolated_animation_frames(
+            frame_dataframes,
+            frame_labels,
+            transition_frames_between_keyframes=transition_frames_between_keyframes,
+            max_rendered_frames=max_rendered_frames,
+        )
+        total_frames = len(render_frames)
         images: list[Image.Image] = []
-        for index, (frame_data, frame_label) in enumerate(zip(frame_dataframes, frame_labels)):
+        durations: list[int] = []
+        for index, (frame_data, frame_label, is_key_frame) in enumerate(render_frames):
             chart_result, _ = create_pjm_matplotlib_figure(
                 frame_data,
                 pjm_geojson,
@@ -524,6 +534,7 @@ def create_pjm_animation_gif_bytes(
             if chart_result.figure is None:
                 return GifAnimationResult(None, chart_result.message or "Animation frame rendering failed.", diagnostics, frame_dataframes, frame_labels)
             images.append(_matplotlib_figure_to_palette_image(chart_result.figure))
+            durations.append(duration_ms if is_key_frame else transition_duration_ms)
             if progress_callback is not None:
                 progress_callback((index + 1) / total_frames)
 
@@ -533,7 +544,7 @@ def create_pjm_animation_gif_bytes(
             format="GIF",
             save_all=True,
             append_images=images[1:],
-            duration=duration_ms,
+            duration=durations if len(durations) > 1 else duration_ms,
             loop=0,
             disposal=2,
             optimize=False,
@@ -541,6 +552,99 @@ def create_pjm_animation_gif_bytes(
         return GifAnimationResult(output.getvalue(), None, diagnostics, frame_dataframes, frame_labels)
     except Exception as exc:
         return GifAnimationResult(None, f"PJM GIF animation rendering failed: {exc}", empty_diagnostics, [], [])
+
+
+def _build_interpolated_animation_frames(
+    frame_dataframes: list[pd.DataFrame],
+    frame_labels: list[str],
+    *,
+    transition_frames_between_keyframes: int,
+    max_rendered_frames: int,
+) -> list[tuple[pd.DataFrame, str, bool]]:
+    if not frame_dataframes:
+        return []
+    if len(frame_dataframes) == 1:
+        return [(frame_dataframes[0], frame_labels[0], True)]
+
+    transition_count = _resolved_transition_frame_count(
+        key_frame_count=len(frame_dataframes),
+        requested_transition_count=transition_frames_between_keyframes,
+        max_rendered_frames=max_rendered_frames,
+    )
+    render_frames: list[tuple[pd.DataFrame, str, bool]] = []
+    for index, (frame_data, frame_label) in enumerate(zip(frame_dataframes, frame_labels)):
+        render_frames.append((frame_data, frame_label, True))
+        if transition_count <= 0 or index >= len(frame_dataframes) - 1:
+            continue
+
+        next_frame = frame_dataframes[index + 1]
+        for transition_index in range(1, transition_count + 1):
+            fraction = transition_index / (transition_count + 1)
+            interpolated = _interpolate_zone_metric_frame(frame_data, next_frame, fraction)
+            render_frames.append((interpolated, frame_label, False))
+    return render_frames
+
+
+def _resolved_transition_frame_count(
+    *,
+    key_frame_count: int,
+    requested_transition_count: int,
+    max_rendered_frames: int,
+) -> int:
+    if key_frame_count <= 1 or requested_transition_count <= 0:
+        return 0
+    safe_max_frames = max(key_frame_count, int(max_rendered_frames))
+    available_transition_slots = safe_max_frames - key_frame_count
+    if available_transition_slots <= 0:
+        return 0
+    return min(int(requested_transition_count), available_transition_slots // (key_frame_count - 1))
+
+
+def _interpolate_zone_metric_frame(start_frame: pd.DataFrame, end_frame: pd.DataFrame, fraction: float) -> pd.DataFrame:
+    if start_frame.empty or end_frame.empty or "Zone_Normalized" not in start_frame.columns or "Zone_Normalized" not in end_frame.columns:
+        return start_frame.copy()
+
+    start_by_zone = _frame_rows_by_zone(start_frame)
+    end_by_zone = _frame_rows_by_zone(end_frame)
+    all_zones = sorted(set(start_by_zone).union(end_by_zone))
+    rows: list[dict[str, object]] = []
+    for zone in all_zones:
+        start_row = start_by_zone.get(zone, {})
+        end_row = end_by_zone.get(zone, {})
+        base_row = dict(start_row or end_row)
+        for column in _interpolatable_numeric_columns(start_row, end_row):
+            start_value = _to_float(start_row.get(column))
+            end_value = _to_float(end_row.get(column))
+            if start_value is None and end_value is None:
+                continue
+            if start_value is None:
+                base_row[column] = end_value
+            elif end_value is None:
+                base_row[column] = start_value
+            else:
+                base_row[column] = start_value + ((end_value - start_value) * fraction)
+        rows.append(base_row)
+    return pd.DataFrame(rows)
+
+
+def _frame_rows_by_zone(frame: pd.DataFrame) -> dict[str, dict[str, object]]:
+    deduped = frame.dropna(subset=["Zone_Normalized"]).drop_duplicates(subset=["Zone_Normalized"], keep="first")
+    return {str(row["Zone_Normalized"]): row.to_dict() for _, row in deduped.iterrows()}
+
+
+def _interpolatable_numeric_columns(start_row: dict[str, object], end_row: dict[str, object]) -> list[str]:
+    preferred_columns = [
+        "Selected_Metric",
+        "Monthly_Revenue",
+        "Cumulative_Revenue",
+        "Revenue_per_kW",
+        "Annualized_Revenue",
+        "Opportunity_Score",
+        "Risk_Adjusted_Score",
+        "LMP_Volatility",
+    ]
+    available = set(start_row).union(end_row)
+    return [column for column in preferred_columns if column in available]
 
 
 def build_iso_zone_snapshot_map_bars(

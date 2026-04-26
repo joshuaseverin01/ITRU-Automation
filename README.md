@@ -30,7 +30,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - **Zonal Market Performance:** Lets users explore PJM performance by exact month/timestamp, selected range, multiple snapshots, or animation.
 - **Interactive visual exports:** Saves current Plotly figures as standalone HTML files.
 - **Strategy Export Center:** Downloads processed data and deterministic executive summaries as Markdown or plain text.
-- **Demo-ready UI:** Includes a polished landing state, usage guidance, bundled sample dataset option, and client-facing section names.
+- **Demo-ready UI:** Includes a first-time walkthrough, polished landing state, usage guidance, bundled sample dataset option, and client-facing section names.
 
 ## Technical Stack
 
@@ -150,6 +150,8 @@ demo_data/
 ```
 
 Use the sidebar **Demo files** expander, click **Load Demo Files**, then click **Run Analysis**. The demo files illustrate the workflow: a Flexworks monthly revenue export, a device-to-zone mapping/device summary file, and zone polygon boundaries.
+
+The app includes a built-in walkthrough and demo dataset for first-time users.
 
 Users can replace these with their own Flexworks exports, device-to-zone mapping CSV, and zone GeoJSON. Demo data is intended for walkthroughs and portfolio presentations, not investment analysis.
 

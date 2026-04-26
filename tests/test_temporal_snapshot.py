@@ -20,6 +20,7 @@ from src.temporal import (
     TIME_GRANULARITY_MONTHLY,
     TIME_GRANULARITY_NONE,
     TIME_GRANULARITY_TIMESTAMP,
+    default_frame_count_for_range,
     detect_time_granularity,
     filter_time_range,
     select_evenly_spaced_snapshots,
@@ -234,6 +235,44 @@ class TemporalSnapshotTests(unittest.TestCase):
 
         self.assertEqual(snapshots, [])
 
+    def test_animation_frame_selection_includes_all_months_when_frame_count_matches_range(self) -> None:
+        dataframe = _monthly_n_month_frame(36)
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2022-01", "2024-12", 36)
+
+        self.assertEqual(len(snapshots), 36)
+        self.assertEqual([snapshot.strftime("%Y-%m") for snapshot in snapshots], pd.date_range("2022-01-01", periods=36, freq="MS").strftime("%Y-%m").tolist())
+
+    def test_animation_frame_selection_downsamples_evenly_when_requested_is_smaller(self) -> None:
+        dataframe = _monthly_n_month_frame(36)
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2022-01", "2024-12", 24)
+
+        self.assertEqual(len(snapshots), 24)
+        self.assertEqual(len(set(snapshots)), 24)
+        self.assertEqual(snapshots, sorted(snapshots))
+        self.assertEqual(snapshots[0].strftime("%Y-%m"), "2022-01")
+        self.assertEqual(snapshots[-1].strftime("%Y-%m"), "2024-12")
+
+    def test_default_animation_frame_count_uses_available_points_under_cap(self) -> None:
+        dataframe = _monthly_n_month_frame(24)
+
+        self.assertEqual(default_frame_count_for_range(dataframe, "2022-01", "2023-12", 60), 24)
+
+    def test_default_animation_frame_count_returns_one_for_one_month_range(self) -> None:
+        dataframe = _monthly_n_month_frame(36)
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2022-05", "2022-05", 60)
+
+        self.assertEqual(default_frame_count_for_range(dataframe, "2022-05", "2022-05", 60), 1)
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].strftime("%Y-%m"), "2022-05")
+
+    def test_default_animation_frame_count_returns_zero_for_empty_range(self) -> None:
+        dataframe = _monthly_n_month_frame(36)
+
+        self.assertEqual(default_frame_count_for_range(dataframe, "2027-01", "2027-02", 60), 0)
+
     def test_missing_geojson_returns_fallback_message(self) -> None:
         snapshot = aggregate_zone_metric(
             _monthly_zone_frame(),
@@ -385,6 +424,19 @@ def _long_monthly_frame() -> pd.DataFrame:
             "Revenue_Category": ["Energy"] * 6,
             "Month": ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06"],
             "Revenue": [10, 20, 30, 40, 50, 60],
+        }
+    )
+
+
+def _monthly_n_month_frame(month_count: int) -> pd.DataFrame:
+    months = pd.date_range("2022-01-01", periods=month_count, freq="MS")
+    return pd.DataFrame(
+        {
+            "Zone": ["BGE"] * month_count,
+            "ISO_Region": ["PJM"] * month_count,
+            "Revenue_Category": ["Energy"] * month_count,
+            "Month": months.strftime("%Y-%m").tolist(),
+            "Revenue": list(range(month_count)),
         }
     )
 

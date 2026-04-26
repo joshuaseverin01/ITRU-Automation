@@ -111,6 +111,21 @@ def filter_time_range(dataframe: pd.DataFrame, start: object, end: object) -> pd
     return filtered.loc[mask].copy().reset_index(drop=True)
 
 
+def available_time_points_in_range(dataframe: pd.DataFrame, start: object, end: object) -> list[pd.Timestamp]:
+    """Return valid available time points inside an inclusive time range."""
+
+    return available_time_points(filter_time_range(dataframe, start, end))
+
+
+def default_frame_count_for_range(dataframe: pd.DataFrame, start: object, end: object, frame_cap: int) -> int:
+    """Return the default animation key-frame count for a selected range."""
+
+    if frame_cap <= 0:
+        return 0
+    points = available_time_points_in_range(dataframe, start, end)
+    return min(len(points), frame_cap)
+
+
 def select_evenly_spaced_snapshots(
     dataframe: pd.DataFrame,
     start: object,
@@ -122,14 +137,50 @@ def select_evenly_spaced_snapshots(
     if n <= 0:
         return []
 
-    filtered = filter_time_range(dataframe, start, end)
-    points = available_time_points(filtered)
+    points = available_time_points_in_range(dataframe, start, end)
     if len(points) <= n:
         return points
 
-    indices = np.linspace(0, len(points) - 1, num=n)
-    selected_indices = sorted({int(round(index)) for index in indices})
+    selected_indices = _unique_evenly_spaced_indices(len(points), n)
     return [points[index] for index in selected_indices]
+
+
+def _unique_evenly_spaced_indices(total_count: int, requested_count: int) -> list[int]:
+    if requested_count <= 0 or total_count <= 0:
+        return []
+    if requested_count >= total_count:
+        return list(range(total_count))
+
+    raw_indices = np.linspace(0, total_count - 1, num=requested_count)
+    selected: list[int] = []
+    used: set[int] = set()
+    for raw_index in raw_indices:
+        index = int(round(float(raw_index)))
+        if index in used:
+            index = _nearest_unused_index(index, total_count, used)
+        selected.append(index)
+        used.add(index)
+
+    if len(selected) < requested_count:
+        for index in range(total_count):
+            if index not in used:
+                selected.append(index)
+                used.add(index)
+            if len(selected) == requested_count:
+                break
+
+    return sorted(selected[:requested_count])
+
+
+def _nearest_unused_index(index: int, total_count: int, used: set[int]) -> int:
+    for offset in range(1, total_count):
+        left = index - offset
+        right = index + offset
+        if left >= 0 and left not in used:
+            return left
+        if right < total_count and right not in used:
+            return right
+    return index
 
 
 def _valid_datetimes(series: pd.Series) -> pd.Series:
