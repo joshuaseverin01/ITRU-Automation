@@ -89,6 +89,7 @@ DEMO_FILE_PATHS = (
 DEFAULT_PJM_GEOJSON_PATH = DEMO_ZONES_GEOJSON_PATH
 MAX_MULTI_SNAPSHOTS = 12
 MAX_ANIMATION_FRAMES = 60
+ANIMATION_PLAYER_HEIGHT = 700
 ANALYSIS_STATE_KEY = "flexworks_analysis_state"
 WALKTHROUGH_STATE_KEY = "show_walkthrough"
 ISO_TIME_VIEW_MODE_KEY = "iso_time_view_mode"
@@ -98,6 +99,7 @@ ISO_PREVIOUS_TIME_VIEW_MODE_KEY = "iso_previous_time_view_mode"
 
 def main() -> None:
     st.set_page_config(page_title="Flexworks Arbitrage Intelligence Dashboard", layout="wide")
+    _inject_global_styles()
     _render_header()
 
     try:
@@ -108,20 +110,50 @@ def main() -> None:
     _render_footer()
 
 
+def _inject_global_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp,
+        [data-testid="stAppViewContainer"] {
+            background: #E9FCE9;
+            color: #1F2937;
+        }
+        [data-testid="stHeader"] {
+            background: rgba(233, 252, 233, 0.92);
+        }
+        [data-testid="stSidebar"],
+        [data-testid="stSidebarContent"] {
+            background: #F8FFF8;
+            color: #1F2937;
+        }
+        .block-container {
+            color: #1F2937;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"],
+        div[data-testid="stExpander"] {
+            background: #F8FFF8;
+        }
+        .stButton > button {
+            border-color: #86C986;
+            color: #1F2937;
+        }
+        .stButton > button[kind="primary"] {
+            background: #1CB51C;
+            border-color: #1CB51C;
+            color: #FFFFFF;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_header() -> None:
     st.title("Flexworks Arbitrage Intelligence Dashboard")
     st.caption("Turn battery arbitrage simulations into zone-level market strategy.")
-    with st.expander("How to use this app", expanded=False):
-        st.markdown(
-            "\n".join(
-                [
-                    "- Upload Flexworks output.",
-                    "- Select ISO and metric.",
-                    "- Explore static, range, multi-snapshot, or animation views.",
-                    "- Export CSV, HTML visuals, and executive summary.",
-                ]
-            )
-        )
+    if st.button("How to use this app", key="header_show_walkthrough"):
+        _reopen_walkthrough(st.session_state)
 
 
 def _render_empty_state(has_demo_data: bool) -> None:
@@ -211,17 +243,11 @@ def _render_walkthrough_dialog() -> None:
 
     @dialog("Welcome to the Flexworks Arbitrage Intelligence Dashboard")
     def walkthrough_dialog() -> None:
-        st.write("This tool converts Flexworks battery arbitrage simulations into zone-level market intelligence.")
-        st.markdown(
-            "\n".join(
-                [
-                    "1. Load demo files or upload your own Flexworks export CSV, mapping CSV, and zones GeoJSON.",
-                    "2. Click **Run Analysis** to process the data.",
-                    "3. Explore Snapshot, Time range, Multi-snapshot, and Animation modes.",
-                    "4. Download PNGs, GIFs, CSVs, and summaries from the Strategy Export Center.",
-                ]
-            )
+        st.write(
+            "This dashboard turns Flexworks battery arbitrage simulations into zone-level market intelligence, "
+            "combining revenue benchmarking, PJM geospatial maps, temporal animation, and exportable strategy outputs."
         )
+        st.markdown(_walkthrough_markdown())
         if st.button(
             "Got it",
             type="primary",
@@ -234,7 +260,7 @@ def _render_walkthrough_dialog() -> None:
 
 def _render_walkthrough_card() -> None:
     st.markdown(
-        """
+        f"""
         <div style="
             border: 1px solid #cbd5e1;
             border-radius: 10px;
@@ -248,14 +274,10 @@ def _render_walkthrough_card() -> None:
                 Welcome to the Flexworks Arbitrage Intelligence Dashboard
             </h3>
             <p style="margin: 0 0 0.7rem 0; color: #1f2937;">
-                This tool converts Flexworks battery arbitrage simulations into zone-level market intelligence.
+                This dashboard turns Flexworks battery arbitrage simulations into zone-level market intelligence,
+                combining revenue benchmarking, PJM geospatial maps, temporal animation, and exportable strategy outputs.
             </p>
-            <ol style="margin: 0 0 0 1.25rem; padding: 0; color: #1f2937;">
-                <li>Load demo files or upload your own Flexworks export CSV, mapping CSV, and zones GeoJSON.</li>
-                <li>Click <strong>Run Analysis</strong> to process the data.</li>
-                <li>Explore Snapshot, Time range, Multi-snapshot, and Animation modes.</li>
-                <li>Download PNGs, GIFs, CSVs, and summaries from the Strategy Export Center.</li>
-            </ol>
+            {_walkthrough_html_sections()}
         </div>
         """,
         unsafe_allow_html=True,
@@ -266,6 +288,55 @@ def _render_walkthrough_card() -> None:
         key="dismiss_walkthrough_card",
     ):
         _close_walkthrough_and_rerun(st.session_state, st.rerun)
+
+
+def _walkthrough_markdown() -> str:
+    return "\n\n".join(
+        [
+            "### 1. Start with demo files\n"
+            "First-time users can open the sidebar, expand **Demo files**, click **Load Demo Files**, "
+            "then click **Run Analysis**. This loads a bundled PJM sample workflow so you can explore the dashboard without preparing your own exports.",
+            "### 2. Upload your own data\n"
+            "**FlexWorks Export CSVs** contain simulation revenue or market performance data. "
+            "**Device-to-Zone Mapping CSV** connects simulation devices or nodes to zone names. "
+            "**Zones GeoJSON** provides the polygon boundaries used for zone maps.",
+            "### 3. Explore the analysis\n"
+            "**Snapshot** shows one time period. **Time range** aggregates over a selected window. "
+            "**Multi-snapshot** compares several points across time. **Animation** shows how zone performance evolves with playback controls.",
+            "### 4. Export outputs\n"
+            "Download static PNGs, animated GIFs, processed CSVs, ranked outputs, and deterministic executive summaries from the **Strategy Export Center**.",
+        ]
+    )
+
+
+def _walkthrough_html_sections() -> str:
+    sections = [
+        (
+            "1. Start with demo files",
+            "Open the sidebar, expand <strong>Demo files</strong>, click <strong>Load Demo Files</strong>, then click <strong>Run Analysis</strong> to launch a bundled PJM sample workflow.",
+        ),
+        (
+            "2. Upload your own data",
+            "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
+        ),
+        (
+            "3. Explore the analysis",
+            "Use <strong>Snapshot</strong>, <strong>Time range</strong>, <strong>Multi-snapshot</strong>, and <strong>Animation</strong> modes to compare zonal market performance over time.",
+        ),
+        (
+            "4. Export outputs",
+            "Download PNGs, animated GIFs, processed CSVs, ranked outputs, and executive summaries from the <strong>Strategy Export Center</strong>.",
+        ),
+    ]
+    return "".join(
+        f"""
+        <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.75rem 0.85rem; margin-top: 0.65rem;">
+            <div style="font-weight: 700; color: #111827; margin-bottom: 0.25rem;">{title}</div>
+            <div style="color: #374151; line-height: 1.45;">{body}</div>
+        </div>
+        """
+        for title, body in sections
+    )
 
 
 def _render_app() -> None:
@@ -1288,7 +1359,7 @@ def _render_iso_zone_performance_snapshot(
                     "PJM zone performance animation",
                 )
                 if player_html:
-                    components.html(player_html, height=850, scrolling=False)
+                    components.html(player_html, height=ANIMATION_PLAYER_HEIGHT, scrolling=False)
                     st.caption("Use the playback controls to pause or scrub through the selected period.")
                     player_rendered = True
             except Exception as exc:

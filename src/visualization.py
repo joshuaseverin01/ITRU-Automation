@@ -90,20 +90,40 @@ ISO_ZONE_SNAPSHOT_METRIC_LABELS = {
     "Selected_Metric": "Selected Metric",
 }
 REVENUE_GREEN_COLORSCALE = [
-    (0.0, "#cfecc8"),
-    (0.28, "#a1d99b"),
-    (0.55, "#74c476"),
-    (0.75, "#238b45"),
-    (1.0, "#006d2c"),
+    (0.0, "#D9FAD7"),
+    (0.09, "#D0F8CC"),
+    (0.18, "#C6F7C2"),
+    (0.27, "#BCF5B8"),
+    (0.36, "#B1F3AE"),
+    (0.45, "#A7F2A4"),
+    (0.55, "#9BF09A"),
+    (0.64, "#90EE90"),
+    (0.73, "#72E972"),
+    (0.82, "#4AE34A"),
+    (0.91, "#22DD22"),
+    (1.0, "#1CB51C"),
 ]
-MATPLOTLIB_REVENUE_PALETTE = ["#cfecc8", "#a1d99b", "#74c476", "#238b45", "#006d2c"]
+MATPLOTLIB_REVENUE_PALETTE = [
+    "#D9FAD7",
+    "#D0F8CC",
+    "#C6F7C2",
+    "#BCF5B8",
+    "#B1F3AE",
+    "#A7F2A4",
+    "#9BF09A",
+    "#90EE90",
+    "#72E972",
+    "#4AE34A",
+    "#22DD22",
+    "#1CB51C",
+]
 MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
 MATPLOTLIB_NEGATIVE_BAR_COLOR = "#b91c1c"
-MATPLOTLIB_FIGURE_BG = "#f3f4f6"
-MATPLOTLIB_PANEL_BG = "#f9fafb"
-MATPLOTLIB_TEXT_COLOR = "#111827"
+MATPLOTLIB_FIGURE_BG = "#F6FFF6"
+MATPLOTLIB_PANEL_BG = "#FFFFFF"
+MATPLOTLIB_TEXT_COLOR = "#1F2937"
 MATPLOTLIB_MUTED_TEXT_COLOR = "#1f2937"
-MATPLOTLIB_LABEL_STROKE = "#f9fafb"
+MATPLOTLIB_LABEL_STROKE = "#F8FFF8"
 MATPLOTLIB_MAP_PADDING_RATIO = 0.035
 MATPLOTLIB_LABEL_NUDGES = {
     "BGE": (-0.06, -0.03),
@@ -769,7 +789,20 @@ def _revenue_green_cmap() -> LinearSegmentedColormap:
     return LinearSegmentedColormap.from_list("flexworks_revenue_green", MATPLOTLIB_REVENUE_PALETTE)
 
 
+def map_value_to_color(value: float, vmin: float, vmax: float) -> str:
+    if math.isclose(float(vmin), float(vmax)):
+        normalized = 0.5
+    else:
+        normalized = (float(value) - float(vmin)) / (float(vmax) - float(vmin))
+    index = int(round(float(np.clip(normalized, 0.0, 1.0)) * (len(MATPLOTLIB_REVENUE_PALETTE) - 1)))
+    return MATPLOTLIB_REVENUE_PALETTE[index]
+
+
 def _metric_color(value: float, value_min: float, value_max: float, cmap: LinearSegmentedColormap) -> object:
+    return map_value_to_color(value, value_min, value_max)
+
+
+def _legacy_metric_color(value: float, value_min: float, value_max: float, cmap: LinearSegmentedColormap) -> object:
     if math.isclose(value_min, value_max):
         normalized = 0.5
     else:
@@ -778,7 +811,8 @@ def _metric_color(value: float, value_min: float, value_max: float, cmap: Linear
 
 
 def _metric_color_hex(value: float, value_min: float, value_max: float) -> str:
-    return to_hex(_metric_color(value, value_min, value_max, _revenue_green_cmap()))
+    legacy_cmap = LinearSegmentedColormap.from_list("flexworks_legacy_revenue_green", ["#cfecc8", "#a1d99b", "#74c476", "#238b45", "#006d2c"])
+    return to_hex(_legacy_metric_color(value, value_min, value_max, legacy_cmap))
 
 
 def build_iso_zone_snapshot_map_bars(
