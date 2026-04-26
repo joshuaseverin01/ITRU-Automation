@@ -26,7 +26,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, to_hex
 from matplotlib.figure import Figure
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as MplPath
@@ -90,13 +90,13 @@ ISO_ZONE_SNAPSHOT_METRIC_LABELS = {
     "Selected_Metric": "Selected Metric",
 }
 REVENUE_GREEN_COLORSCALE = [
-    (0.0, "#bfe7b8"),
-    (0.25, "#8fd08b"),
-    (0.5, "#4fb96a"),
+    (0.0, "#cfecc8"),
+    (0.28, "#a1d99b"),
+    (0.55, "#74c476"),
     (0.75, "#238b45"),
     (1.0, "#006d2c"),
 ]
-MATPLOTLIB_REVENUE_PALETTE = ["#bfe7b8", "#8fd08b", "#4fb96a", "#238b45", "#006d2c"]
+MATPLOTLIB_REVENUE_PALETTE = ["#cfecc8", "#a1d99b", "#74c476", "#238b45", "#006d2c"]
 MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
 MATPLOTLIB_NEGATIVE_BAR_COLOR = "#b91c1c"
 MATPLOTLIB_FIGURE_BG = "#f3f4f6"
@@ -454,7 +454,7 @@ def animation_frames_to_html_player(
           }}
           timer = window.setInterval(() => {{
             showFrame((frameIndex + 1) % frames.length);
-          }}, 220);
+          }}, 90);
         }}
 
         slider.addEventListener("input", () => {{
@@ -550,10 +550,10 @@ def create_pjm_animation_gif_bytes(
     frame_count: int,
     category: str,
     iso_region: str = "PJM",
-    duration_ms: int = 450,
-    transition_frames_between_keyframes: int = 2,
-    transition_duration_ms: int = 120,
-    max_rendered_frames: int = 180,
+    duration_ms: int = 300,
+    transition_frames_between_keyframes: int = 5,
+    transition_duration_ms: int = 60,
+    max_rendered_frames: int = 300,
     progress_callback: Callable[[float], None] | None = None,
 ) -> GifAnimationResult:
     """Create a PJM map-and-bars GIF using the matplotlib static renderer."""
@@ -757,12 +757,28 @@ def _global_metric_range(frame_dataframes: list[pd.DataFrame], metric: str) -> t
     if not values:
         return None
 
-    value_min = min(min(values), 0.0)
-    value_max = max(max(values), 0.0)
+    value_min = min(values)
+    value_max = max(values)
     if math.isclose(value_min, value_max):
         value_min -= 1.0
         value_max += 1.0
     return value_min, value_max
+
+
+def _revenue_green_cmap() -> LinearSegmentedColormap:
+    return LinearSegmentedColormap.from_list("flexworks_revenue_green", MATPLOTLIB_REVENUE_PALETTE)
+
+
+def _metric_color(value: float, value_min: float, value_max: float, cmap: LinearSegmentedColormap) -> object:
+    if math.isclose(value_min, value_max):
+        normalized = 0.5
+    else:
+        normalized = (float(value) - value_min) / (value_max - value_min)
+    return cmap(float(np.clip(normalized, 0.0, 1.0)))
+
+
+def _metric_color_hex(value: float, value_min: float, value_max: float) -> str:
+    return to_hex(_metric_color(value, value_min, value_max, _revenue_green_cmap()))
 
 
 def build_iso_zone_snapshot_map_bars(
@@ -1226,7 +1242,7 @@ def _draw_pjm_matplotlib_map_bars(
         for _, row in chart_data.iterrows()
         if _to_float(row.get(metric)) is not None
     }
-    cmap = LinearSegmentedColormap.from_list("flexworks_revenue_green", MATPLOTLIB_REVENUE_PALETTE)
+    cmap = _revenue_green_cmap()
     numeric_values = pd.to_numeric(chart_data[metric], errors="coerce").dropna()
     if metric_range is not None:
         value_min = float(metric_range[0])
@@ -1249,7 +1265,7 @@ def _draw_pjm_matplotlib_map_bars(
 
     for geometry in geometries:
         value = values_by_zone.get(geometry.normalized_zone)
-        facecolor = MATPLOTLIB_NO_DATA_COLOR if value is None else cmap((value - value_min) / (value_max - value_min))
+        facecolor = MATPLOTLIB_NO_DATA_COLOR if value is None else _metric_color(value, value_min, value_max, cmap)
         patch = PathPatch(
             geometry.path,
             facecolor=facecolor,
@@ -1292,7 +1308,7 @@ def _draw_pjm_matplotlib_map_bars(
     bar_zones = bar_data["Zone"].astype(str).tolist()
     y_positions = np.arange(len(bar_data), dtype=float)
     bar_colors = [
-        MATPLOTLIB_NEGATIVE_BAR_COLOR if value < 0 else cmap((value - value_min) / (value_max - value_min))
+        MATPLOTLIB_NEGATIVE_BAR_COLOR if value < 0 else _metric_color(value, value_min, value_max, cmap)
         for value in bar_values
     ]
 

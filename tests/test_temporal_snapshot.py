@@ -26,6 +26,8 @@ from src.temporal import (
     select_evenly_spaced_snapshots,
 )
 from src.visualization import (
+    _build_interpolated_animation_frames,
+    _metric_color_hex,
     build_iso_zone_snapshot_map_bars,
     create_animated_zone_performance_figure,
     create_pjm_animation_gif_bytes,
@@ -313,6 +315,34 @@ class TemporalSnapshotTests(unittest.TestCase):
         bar_labels = [label.get_text() for label in chart.figure.axes[2].get_yticklabels()]
         self.assertEqual(set(bar_labels), {"BGE", "DPL"})
 
+    def test_green_color_scale_maps_low_to_lighter_and_high_to_darker_green(self) -> None:
+        low_color = _metric_color_hex(0, 0, 100)
+        mid_color = _metric_color_hex(50, 0, 100)
+        high_color = _metric_color_hex(100, 0, 100)
+
+        self.assertEqual(low_color.lower(), "#cfecc8")
+        self.assertEqual(high_color.lower(), "#006d2c")
+        self.assertGreater(_hex_luminance(low_color), _hex_luminance(mid_color))
+        self.assertGreater(_hex_luminance(mid_color), _hex_luminance(high_color))
+        self.assertGreater(_hex_luminance(low_color) - _hex_luminance(high_color), 0.45)
+
+    def test_interpolated_animation_frames_increase_frame_count_and_preserve_endpoints(self) -> None:
+        start_frame = pd.DataFrame({"Zone_Normalized": ["BGE"], "Zone": ["BGE"], "Selected_Metric": [10.0]})
+        end_frame = pd.DataFrame({"Zone_Normalized": ["BGE"], "Zone": ["BGE"], "Selected_Metric": [70.0]})
+
+        frames = _build_interpolated_animation_frames(
+            [start_frame, end_frame],
+            ["January 2024", "February 2024"],
+            transition_frames_between_keyframes=5,
+            max_rendered_frames=20,
+        )
+        values = [float(frame.loc[frame["Zone"] == "BGE", "Selected_Metric"].iloc[0]) for frame, _, _ in frames]
+
+        self.assertEqual(len(frames), 7)
+        self.assertEqual(values[0], 10)
+        self.assertEqual(values[-1], 70)
+        self.assertEqual(values[1:-1], [20, 30, 40, 50, 60])
+
     def test_animation_builder_creates_frames_and_controls(self) -> None:
         dataframe = _monthly_zone_frame()
         snapshots = [
@@ -473,6 +503,14 @@ def _positive_monthly_zone_frame() -> pd.DataFrame:
             "Revenue": [10, 20, 30, 40],
         }
     )
+
+
+def _hex_luminance(hex_color: str) -> float:
+    cleaned = hex_color.lstrip("#")
+    red = int(cleaned[0:2], 16) / 255
+    green = int(cleaned[2:4], 16) / 255
+    blue = int(cleaned[4:6], 16) / 255
+    return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
 
 
 def _tiny_pjm_geojson() -> PjmZoneGeoJson:
