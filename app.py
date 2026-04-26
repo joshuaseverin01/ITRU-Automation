@@ -91,6 +91,9 @@ MAX_MULTI_SNAPSHOTS = 12
 MAX_ANIMATION_FRAMES = 60
 ANALYSIS_STATE_KEY = "flexworks_analysis_state"
 WALKTHROUGH_STATE_KEY = "show_walkthrough"
+ISO_TIME_VIEW_MODE_KEY = "iso_time_view_mode"
+ISO_METRIC_KEY = "iso_snapshot_metric"
+ISO_PREVIOUS_TIME_VIEW_MODE_KEY = "iso_previous_time_view_mode"
 
 
 def main() -> None:
@@ -172,6 +175,24 @@ def _reopen_walkthrough(session_state: MutableMapping[str, object]) -> None:
     """Show the walkthrough again in the current Streamlit session."""
 
     session_state[WALKTHROUGH_STATE_KEY] = True
+
+
+def _apply_animation_metric_default(
+    session_state: MutableMapping[str, object],
+    *,
+    current_mode: str,
+    metric_options: list[str],
+    metric_key: str = ISO_METRIC_KEY,
+    previous_mode_key: str = ISO_PREVIOUS_TIME_VIEW_MODE_KEY,
+) -> None:
+    """Default Animation mode to cumulative revenue without overriding manual in-mode changes."""
+
+    previous_mode = session_state.get(previous_mode_key)
+    if session_state.get(metric_key) not in metric_options and metric_options:
+        session_state[metric_key] = metric_options[0]
+    if current_mode == "Animation" and previous_mode != "Animation" and SNAPSHOT_METRIC_CUMULATIVE_REVENUE in metric_options:
+        session_state[metric_key] = SNAPSHOT_METRIC_CUMULATIVE_REVENUE
+    session_state[previous_mode_key] = current_mode
 
 
 def _render_walkthrough() -> None:
@@ -1015,8 +1036,9 @@ def _render_iso_zone_performance_snapshot(
     metric_options = [SNAPSHOT_METRIC_MONTHLY_REVENUE, SNAPSHOT_METRIC_CUMULATIVE_REVENUE]
     if "Revenue_per_kW" in iso_monthly.columns and not pd.to_numeric(iso_monthly["Revenue_per_kW"], errors="coerce").dropna().empty:
         metric_options.append(SNAPSHOT_METRIC_REVENUE_PER_KW)
-    view_mode = col2.radio("Mode", ["Snapshot", "Time range", "Multi-snapshot", "Animation"], horizontal=True, key="iso_time_view_mode")
-    selected_metric = col3.selectbox("Metric", metric_options, key="iso_snapshot_metric")
+    view_mode = col2.radio("Mode", ["Snapshot", "Time range", "Multi-snapshot", "Animation"], horizontal=True, key=ISO_TIME_VIEW_MODE_KEY)
+    _apply_animation_metric_default(st.session_state, current_mode=view_mode, metric_options=metric_options)
+    selected_metric = col3.selectbox("Metric", metric_options, key=ISO_METRIC_KEY)
     revenue_category = col4.selectbox("Revenue category", _monthly_category_options(iso_monthly), key="iso_snapshot_category")
 
     category_filtered = iso_monthly.copy()

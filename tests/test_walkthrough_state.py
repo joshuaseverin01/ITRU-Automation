@@ -5,7 +5,10 @@ from __future__ import annotations
 import unittest
 
 from app import (
+    ISO_METRIC_KEY,
+    ISO_PREVIOUS_TIME_VIEW_MODE_KEY,
     WALKTHROUGH_STATE_KEY,
+    _apply_animation_metric_default,
     _close_walkthrough_and_rerun,
     _dismiss_walkthrough,
     _ensure_walkthrough_state,
@@ -46,6 +49,50 @@ class WalkthroughStateTests(unittest.TestCase):
 
         self.assertTrue(session_state[WALKTHROUGH_STATE_KEY])
         self.assertTrue(_ensure_walkthrough_state(session_state))
+
+    def test_animation_mode_defaults_metric_to_cumulative_on_entry(self) -> None:
+        session_state: dict[str, object] = {
+            ISO_PREVIOUS_TIME_VIEW_MODE_KEY: "Snapshot",
+            ISO_METRIC_KEY: "Monthly Revenue",
+        }
+
+        _apply_animation_metric_default(
+            session_state,
+            current_mode="Animation",
+            metric_options=["Monthly Revenue", "Cumulative Revenue", "Revenue per kW"],
+        )
+
+        self.assertEqual(session_state[ISO_METRIC_KEY], "Cumulative Revenue")
+        self.assertEqual(session_state[ISO_PREVIOUS_TIME_VIEW_MODE_KEY], "Animation")
+
+    def test_animation_mode_manual_metric_override_persists_while_in_animation(self) -> None:
+        session_state: dict[str, object] = {
+            ISO_PREVIOUS_TIME_VIEW_MODE_KEY: "Animation",
+            ISO_METRIC_KEY: "Revenue per kW",
+        }
+
+        _apply_animation_metric_default(
+            session_state,
+            current_mode="Animation",
+            metric_options=["Monthly Revenue", "Cumulative Revenue", "Revenue per kW"],
+        )
+
+        self.assertEqual(session_state[ISO_METRIC_KEY], "Revenue per kW")
+
+    def test_non_animation_mode_does_not_force_metric(self) -> None:
+        session_state: dict[str, object] = {
+            ISO_PREVIOUS_TIME_VIEW_MODE_KEY: "Animation",
+            ISO_METRIC_KEY: "Monthly Revenue",
+        }
+
+        _apply_animation_metric_default(
+            session_state,
+            current_mode="Snapshot",
+            metric_options=["Monthly Revenue", "Cumulative Revenue"],
+        )
+
+        self.assertEqual(session_state[ISO_METRIC_KEY], "Monthly Revenue")
+        self.assertEqual(session_state[ISO_PREVIOUS_TIME_VIEW_MODE_KEY], "Snapshot")
 
 
 if __name__ == "__main__":
