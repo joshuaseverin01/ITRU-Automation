@@ -64,7 +64,7 @@ from src.visualization import (
     build_pjm_zone_choropleth,
     build_top_nodes_bar,
     build_volatility_revenue_scatter,
-    create_animated_zone_performance_figure,
+    create_pjm_animation_gif_bytes,
     create_pjm_matplotlib_figure,
 )
 
@@ -1085,37 +1085,59 @@ def _render_iso_zone_performance_snapshot(
             st.warning("PJM zone map requires the PJM GeoJSON file for animation mode.")
             return
 
-        animation_snapshots = [
-            aggregate_zone_metric(
-                iso_monthly,
-                metric=selected_metric,
-                category=revenue_category,
-                time_point=selected_time,
-                iso_region=selected_iso,
-            )
-            for selected_time in selected_times
-        ]
         frame_labels = [format_time_label(selected_time, granularity) for selected_time in selected_times]
-        if len(animation_snapshots) == 1:
+        if len(frame_labels) == 1:
             st.caption("Only one valid time point is selected, so playback contains a single frame.")
+        st.caption("Animation renders as a GIF preview for reliable map styling.")
 
-        chart_result, diagnostics = create_animated_zone_performance_figure(
-            animation_snapshots,
-            iso_region=selected_iso,
-            pjm_geojson=pjm_geojson,
-            metric_column="Selected_Metric",
-            metric_label=selected_metric,
-            category_label=revenue_category,
-            frame_labels=frame_labels,
+        cache_key = _animation_gif_cache_key(
+            iso_monthly,
+            selected_iso=selected_iso,
+            selected_metric=selected_metric,
+            revenue_category=revenue_category,
+            start_label=start_label,
+            end_label=end_label,
+            requested_frames=requested_frames,
         )
-        if chart_result.figure is not None:
+        animation_cache = st.session_state.setdefault("pjm_animation_gif_cache", {})
+        gif_result = animation_cache.get(cache_key)
+        if gif_result is None:
+            progress = st.progress(0)
+            with st.status("Rendering PJM animation GIF...", expanded=True) as status:
+                st.write("Building matplotlib map frames...")
+                gif_result = create_pjm_animation_gif_bytes(
+                    iso_monthly,
+                    pjm_geojson,
+                    metric=selected_metric,
+                    category=revenue_category,
+                    start_time=start_time,
+                    end_time=end_time,
+                    frame_count=requested_frames,
+                    iso_region=selected_iso,
+                    progress_callback=lambda value: progress.progress(min(max(float(value), 0.0), 1.0)),
+                )
+                if gif_result.gif_bytes is not None:
+                    animation_cache[cache_key] = gif_result
+                    status.update(label="Animation GIF ready.", state="complete", expanded=False)
+                else:
+                    status.update(label="Animation GIF could not be rendered.", state="error", expanded=True)
+            progress.empty()
+
+        diagnostics = gif_result.diagnostics
+        if gif_result.gif_bytes is not None:
             st.caption(
-                f"Animation uses {len(frame_labels)} evenly spaced {time_control_label.lower()} frame(s) from "
+                f"Animation uses {len(gif_result.frame_labels)} evenly spaced {time_control_label.lower()} frame(s) from "
                 f"{format_time_range_label(start_time, end_time, granularity)} to show how zonal performance evolves over time."
             )
-            st.plotly_chart(chart_result.figure, use_container_width=True)
+            st.image(gif_result.gif_bytes)
+            st.download_button(
+                "Download animation GIF",
+                data=gif_result.gif_bytes,
+                file_name=f"{_export_file_stem(selected_iso, selected_metric, format_time_range_label(start_time, end_time, granularity), 'animation')}.gif",
+                mime="image/gif",
+            )
             export_frames = []
-            for frame_label, frame_data in zip(frame_labels, animation_snapshots):
+            for frame_label, frame_data in zip(gif_result.frame_labels, gif_result.frame_dataframes):
                 if frame_data.empty:
                     continue
                 export_frame = frame_data.copy()
@@ -1124,14 +1146,14 @@ def _render_iso_zone_performance_snapshot(
             if export_frames:
                 _render_iso_export_report(
                     zone_data=pd.concat(export_frames, ignore_index=True),
-                    figures=[chart_result.figure],
+                    figures=[],
                     selected_iso=selected_iso,
                     selected_metric=selected_metric,
                     selected_period=format_time_range_label(start_time, end_time, granularity),
                     mode_label="animation",
                 )
         else:
-            st.warning(chart_result.message)
+            st.warning(gif_result.message)
             _render_snapshot_join_diagnostics(diagnostics)
         return
 
@@ -1328,6 +1350,32 @@ def _monthly_category_options(monthly_revenue: pd.DataFrame) -> list[str]:
     ordered = [category for category in preferred_order if category in available]
     ordered.extend(sorted(category for category in available if category not in ordered))
     return [ALL_REVENUE_CATEGORIES, *ordered]
+
+
+def _animation_gif_cache_key(
+    dataframe: pd.DataFrame,
+    *,
+    selected_iso: str,
+    selected_metric: str,
+    revenue_category: str,
+    start_label: str,
+    end_label: str,
+    requested_frames: int,
+) -> tuple[object, ...]:
+    revenue_total = None
+    if "Revenue" in dataframe.columns:
+        revenue_total = round(float(pd.to_numeric(dataframe["Revenue"], errors="coerce").fillna(0.0).sum()), 4)
+    return (
+        selected_iso,
+        selected_metric,
+        revenue_category,
+        start_label,
+        end_label,
+        int(requested_frames),
+        len(dataframe),
+        tuple(dataframe.columns),
+        revenue_total,
+    )
 
 
 def _render_cumulative_revenue_diagnostics(diagnostics: dict[str, object]) -> None:

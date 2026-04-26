@@ -24,7 +24,12 @@ from src.temporal import (
     filter_time_range,
     select_evenly_spaced_snapshots,
 )
-from src.visualization import build_iso_zone_snapshot_map_bars, create_animated_zone_performance_figure, create_pjm_matplotlib_figure
+from src.visualization import (
+    build_iso_zone_snapshot_map_bars,
+    create_animated_zone_performance_figure,
+    create_pjm_animation_gif_bytes,
+    create_pjm_matplotlib_figure,
+)
 
 
 class TemporalSnapshotTests(unittest.TestCase):
@@ -311,6 +316,51 @@ class TemporalSnapshotTests(unittest.TestCase):
         self.assertIsNone(chart.figure)
         self.assertEqual(chart.message, "PJM zone map requires the PJM GeoJSON file for animation.")
         self.assertFalse(diagnostics["is_available"])
+
+    def test_pjm_animation_gif_generation_returns_bytes(self) -> None:
+        result = create_pjm_animation_gif_bytes(
+            _monthly_zone_frame(),
+            _tiny_pjm_geojson(),
+            metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category="Energy",
+            start_time="2024-01",
+            end_time="2024-02",
+            frame_count=2,
+        )
+
+        self.assertIsNone(result.message)
+        self.assertIsNotNone(result.gif_bytes)
+        self.assertTrue(result.gif_bytes.startswith(b"GIF"))
+        self.assertEqual(result.frame_labels, ["January 2024", "February 2024"])
+
+    def test_pjm_animation_gif_empty_dataframe_returns_message(self) -> None:
+        result = create_pjm_animation_gif_bytes(
+            pd.DataFrame(),
+            _tiny_pjm_geojson(),
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            start_time="2024-01",
+            end_time="2024-02",
+            frame_count=2,
+        )
+
+        self.assertIsNone(result.gif_bytes)
+        self.assertEqual(result.message, "Animation requires time-series revenue data.")
+
+    def test_pjm_animation_gif_supports_one_frame(self) -> None:
+        result = create_pjm_animation_gif_bytes(
+            _monthly_zone_frame(),
+            _tiny_pjm_geojson(),
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            start_time="2024-01",
+            end_time="2024-01",
+            frame_count=1,
+        )
+
+        self.assertIsNotNone(result.gif_bytes)
+        self.assertTrue(result.gif_bytes.startswith(b"GIF"))
+        self.assertEqual(result.frame_labels, ["January 2024"])
 
 
 def _monthly_zone_frame() -> pd.DataFrame:

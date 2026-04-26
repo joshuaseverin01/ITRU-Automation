@@ -5,8 +5,10 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from io import BytesIO
 from dataclasses import dataclass
 from heapq import heappop, heappush
+from typing import Callable
 
 os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplconfig_flexworks"))
 
@@ -19,6 +21,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from PIL import Image
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import PathPatch
@@ -34,6 +37,17 @@ class ChartResult:
 
     figure: object | None
     message: str | None = None
+
+
+@dataclass(frozen=True)
+class GifAnimationResult:
+    """Container for a rendered GIF animation and its source frames."""
+
+    gif_bytes: bytes | None
+    message: str | None
+    diagnostics: dict[str, object]
+    frame_dataframes: list[pd.DataFrame]
+    frame_labels: list[str]
 
 
 @dataclass(frozen=True)
@@ -394,6 +408,98 @@ def create_pjm_matplotlib_figure(
         return ChartResult(figure, None), diagnostics
     except Exception as exc:
         return ChartResult(None, f"PJM matplotlib rendering failed: {exc}"), diagnostics
+
+
+def create_pjm_animation_gif_bytes(
+    dataframe: pd.DataFrame | None,
+    pjm_geojson: PjmZoneGeoJson | None,
+    *,
+    metric: str,
+    start_time: object,
+    end_time: object,
+    frame_count: int,
+    category: str,
+    iso_region: str = "PJM",
+    duration_ms: int = 900,
+    progress_callback: Callable[[float], None] | None = None,
+) -> GifAnimationResult:
+    """Create a PJM map-and-bars GIF using the matplotlib static renderer."""
+
+    empty_diagnostics = _cumulative_revenue_diagnostics(pd.DataFrame(), pjm_geojson)
+    if pjm_geojson is None:
+        return GifAnimationResult(None, "PJM zone map requires the PJM GeoJSON file for animation.", empty_diagnostics, [], [])
+    if dataframe is None or dataframe.empty:
+        return GifAnimationResult(None, "Animation requires time-series revenue data.", empty_diagnostics, [], [])
+    if str(iso_region or "").upper() != "PJM":
+        return GifAnimationResult(None, f"{iso_region or 'Selected ISO'} zone animation is not configured yet.", empty_diagnostics, [], [])
+
+    try:
+        from .analysis import aggregate_zone_metric
+        from .temporal import format_time_label, format_time_range_label, select_evenly_spaced_snapshots
+
+        requested_frames = max(1, int(frame_count))
+        selected_times = select_evenly_spaced_snapshots(dataframe, start_time, end_time, requested_frames)
+        if not selected_times:
+            return GifAnimationResult(None, "The selected range has no valid time points for animation.", empty_diagnostics, [], [])
+
+        frame_dataframes: list[pd.DataFrame] = []
+        frame_labels: list[str] = []
+        for selected_time in selected_times:
+            snapshot = aggregate_zone_metric(
+                dataframe,
+                metric=metric,
+                category=category,
+                time_point=selected_time,
+                iso_region=iso_region,
+            )
+            if snapshot.empty:
+                continue
+            frame_dataframes.append(snapshot)
+            frame_labels.append(format_time_label(selected_time, str(snapshot["Time_Granularity"].dropna().iloc[0]) if "Time_Granularity" in snapshot.columns else "monthly"))
+
+        if not frame_dataframes:
+            return GifAnimationResult(None, "No animation frames could be built for the selected range.", empty_diagnostics, [], [])
+
+        combined = pd.concat(frame_dataframes, ignore_index=True)
+        diagnostics = _cumulative_revenue_diagnostics(combined, pjm_geojson)
+        if not diagnostics["is_available"]:
+            return GifAnimationResult(None, "No animation snapshot zones matched the PJM GeoJSON.", diagnostics, frame_dataframes, frame_labels)
+
+        period_label = format_time_range_label(start_time, end_time, str(combined["Time_Granularity"].dropna().iloc[0]) if "Time_Granularity" in combined.columns else "monthly")
+        total_frames = len(frame_dataframes)
+        images: list[Image.Image] = []
+        for index, (frame_data, frame_label) in enumerate(zip(frame_dataframes, frame_labels)):
+            chart_result, _ = create_pjm_matplotlib_figure(
+                frame_data,
+                pjm_geojson,
+                metric="Selected_Metric",
+                metric_label=metric,
+                time_selection=f"{frame_label} ({period_label})",
+                category_label=category,
+                time_context_label="Frame",
+                title="PJM Zone Performance",
+                compact=False,
+            )
+            if chart_result.figure is None:
+                return GifAnimationResult(None, chart_result.message or "Animation frame rendering failed.", diagnostics, frame_dataframes, frame_labels)
+            images.append(_matplotlib_figure_to_palette_image(chart_result.figure))
+            if progress_callback is not None:
+                progress_callback((index + 1) / total_frames)
+
+        output = BytesIO()
+        images[0].save(
+            output,
+            format="GIF",
+            save_all=True,
+            append_images=images[1:],
+            duration=duration_ms,
+            loop=0,
+            disposal=2,
+            optimize=False,
+        )
+        return GifAnimationResult(output.getvalue(), None, diagnostics, frame_dataframes, frame_labels)
+    except Exception as exc:
+        return GifAnimationResult(None, f"PJM GIF animation rendering failed: {exc}", empty_diagnostics, [], [])
 
 
 def build_iso_zone_snapshot_map_bars(
@@ -963,6 +1069,23 @@ def _draw_pjm_matplotlib_map_bars(
         )
 
     return figure
+
+
+def _matplotlib_figure_to_palette_image(figure: Figure) -> Image.Image:
+    buffer = BytesIO()
+    figure.savefig(
+        buffer,
+        format="png",
+        dpi=125,
+        facecolor=figure.get_facecolor(),
+        bbox_inches="tight",
+    )
+    buffer.seek(0)
+    image = Image.open(buffer).convert("RGBA")
+    adaptive_palette = getattr(getattr(Image, "Palette", object), "ADAPTIVE", None)
+    if adaptive_palette is None:
+        adaptive_palette = getattr(Image, "ADAPTIVE", 1)
+    return image.convert("P", palette=adaptive_palette, colors=256)
 
 
 def _matplotlib_zone_geometries(pjm_geojson: PjmZoneGeoJson) -> tuple[list[MatplotlibZoneGeometry], tuple[float, float, float, float]]:
