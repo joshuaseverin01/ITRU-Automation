@@ -289,11 +289,17 @@ def _inject_global_styles() -> None:
         }
         .stMultiSelect div[data-baseweb="select"],
         .stMultiSelect div[data-baseweb="select"] > div,
+        .stMultiSelect div[data-baseweb="select"] > div > div,
+        .stMultiSelect div[data-baseweb="select"] > div > div > div,
         .stMultiSelect div[data-baseweb="select"] div[role="combobox"] {
             overflow: visible !important;
         }
         .stMultiSelect div[data-baseweb="select"] > div {
             padding-left: 0.45rem !important;
+        }
+        .stMultiSelect div[data-baseweb="select"] div:has(> div[data-baseweb="tag"]) {
+            overflow: visible !important;
+            padding-left: 0.35rem !important;
         }
         div[data-baseweb="select"] span,
         div[data-baseweb="popover"] span,
@@ -329,8 +335,9 @@ def _inject_global_styles() -> None:
         div[data-baseweb="select"] div[data-baseweb="tag"] {
             overflow: visible !important;
         }
+        .stMultiSelect div[data-baseweb="select"] div[data-baseweb="tag"]:first-child,
         .stMultiSelect div[data-baseweb="select"] div[data-baseweb="tag"]:first-of-type {
-            margin-left: 0.55rem !important;
+            margin-left: 0.6rem !important;
         }
         div[data-baseweb="select"] div[data-baseweb="tag"] svg {
             flex-shrink: 0 !important;
