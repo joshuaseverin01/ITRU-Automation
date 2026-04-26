@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 
 import pandas as pd
@@ -161,6 +161,13 @@ def _dismiss_walkthrough(session_state: MutableMapping[str, object]) -> None:
     session_state[WALKTHROUGH_STATE_KEY] = False
 
 
+def _close_walkthrough_and_rerun(session_state: MutableMapping[str, object], rerun: Callable[[], None]) -> None:
+    """Hide the walkthrough and immediately refresh the Streamlit UI."""
+
+    _dismiss_walkthrough(session_state)
+    rerun()
+
+
 def _reopen_walkthrough(session_state: MutableMapping[str, object]) -> None:
     """Show the walkthrough again in the current Streamlit session."""
 
@@ -172,12 +179,8 @@ def _render_walkthrough() -> None:
         return
 
     if callable(getattr(st, "dialog", None)):
-        try:
-            _render_walkthrough_dialog()
-            return
-        except Exception:
-            _render_walkthrough_card()
-            return
+        _render_walkthrough_dialog()
+        return
 
     _render_walkthrough_card()
 
@@ -198,13 +201,12 @@ def _render_walkthrough_dialog() -> None:
                 ]
             )
         )
-        st.button(
+        if st.button(
             "Got it",
             type="primary",
             key="dismiss_walkthrough_modal",
-            on_click=_dismiss_walkthrough,
-            args=(st.session_state,),
-        )
+        ):
+            _close_walkthrough_and_rerun(st.session_state, st.rerun)
 
     walkthrough_dialog()
 
@@ -237,13 +239,12 @@ def _render_walkthrough_card() -> None:
         """,
         unsafe_allow_html=True,
     )
-    st.button(
+    if st.button(
         "Got it",
         type="primary",
         key="dismiss_walkthrough_card",
-        on_click=_dismiss_walkthrough,
-        args=(st.session_state,),
-    )
+    ):
+        _close_walkthrough_and_rerun(st.session_state, st.rerun)
 
 
 def _render_app() -> None:
