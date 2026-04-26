@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+import base64
+import zipfile
 from io import BytesIO
 from dataclasses import dataclass
 from heapq import heappop, heappush
@@ -339,6 +341,45 @@ def build_monthly_revenue_bar(dataframe: pd.DataFrame, group_by: str = "Zone") -
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=380)
     return ChartResult(figure)
+
+
+def matplotlib_figure_to_png_bytes(figure: Figure) -> bytes:
+    """Serialize a matplotlib figure to PNG bytes."""
+
+    buffer = BytesIO()
+    figure.savefig(
+        buffer,
+        format="png",
+        dpi=160,
+        facecolor=figure.get_facecolor(),
+        bbox_inches="tight",
+    )
+    return buffer.getvalue()
+
+
+def matplotlib_figures_to_zip_bytes(figures: list[Figure], names: list[str]) -> bytes:
+    """Serialize matplotlib figures into a ZIP archive of PNG files."""
+
+    if len(figures) != len(names):
+        raise ValueError("The number of figures must match the number of file names.")
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for figure, name in zip(figures, names):
+            safe_name = _safe_png_name(name)
+            archive.writestr(safe_name, matplotlib_figure_to_png_bytes(figure))
+    return buffer.getvalue()
+
+
+def gif_bytes_to_html_img(gif_bytes: bytes, alt_text: str = "PJM animation preview") -> str:
+    """Return a small HTML img tag for reliable in-browser GIF playback."""
+
+    encoded = base64.b64encode(gif_bytes).decode("ascii")
+    escaped_alt = alt_text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        f'<img src="data:image/gif;base64,{encoded}" alt="{escaped_alt}" '
+        'style="width:100%;height:auto;border-radius:8px;display:block;" />'
+    )
 
 
 def create_pjm_matplotlib_figure(
@@ -1086,6 +1127,12 @@ def _matplotlib_figure_to_palette_image(figure: Figure) -> Image.Image:
     if adaptive_palette is None:
         adaptive_palette = getattr(Image, "ADAPTIVE", 1)
     return image.convert("P", palette=adaptive_palette, colors=256)
+
+
+def _safe_png_name(name: str) -> str:
+    cleaned = "".join(character if character.isalnum() or character in {"-", "_", "."} else "_" for character in str(name).strip())
+    cleaned = cleaned.strip("_") or "snapshot"
+    return f"{cleaned}.png" if not cleaned.lower().endswith(".png") else cleaned
 
 
 def _matplotlib_zone_geometries(pjm_geojson: PjmZoneGeoJson) -> tuple[list[MatplotlibZoneGeometry], tuple[float, float, float, float]]:

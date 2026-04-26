@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import unittest
+import zipfile
+from io import BytesIO
 
 import pandas as pd
 import plotly.graph_objects as go
+from matplotlib.figure import Figure
 
 from src.reporting import (
     build_executive_summary,
@@ -15,6 +18,7 @@ from src.reporting import (
     plotly_figures_to_html_bytes,
     safe_plotly_png_bytes,
 )
+from src.visualization import gif_bytes_to_html_img, matplotlib_figure_to_png_bytes, matplotlib_figures_to_zip_bytes
 
 
 class ReportingExportTests(unittest.TestCase):
@@ -109,6 +113,31 @@ class ReportingExportTests(unittest.TestCase):
         if png_bytes is None:
             self.assertEqual(message, "PNG export requires Kaleido. HTML export is still available.")
 
+    def test_matplotlib_png_export_returns_bytes(self) -> None:
+        figure = _matplotlib_figure()
+
+        payload = matplotlib_figure_to_png_bytes(figure)
+
+        self.assertIsInstance(payload, bytes)
+        self.assertTrue(payload.startswith(b"\x89PNG"))
+
+    def test_matplotlib_figures_zip_export_contains_pngs(self) -> None:
+        payload = matplotlib_figures_to_zip_bytes(
+            [_matplotlib_figure(), _matplotlib_figure()],
+            ["snapshot one", "snapshot_two.png"],
+        )
+
+        with zipfile.ZipFile(BytesIO(payload), mode="r") as archive:
+            names = archive.namelist()
+            self.assertEqual(names, ["snapshot_one.png", "snapshot_two.png"])
+            self.assertTrue(archive.read("snapshot_one.png").startswith(b"\x89PNG"))
+
+    def test_gif_html_fallback_returns_base64_img_tag(self) -> None:
+        html = gif_bytes_to_html_img(b"GIF89a-demo", alt_text='PJM "demo"')
+
+        self.assertIn('<img src="data:image/gif;base64,', html)
+        self.assertIn('alt="PJM &quot;demo&quot;"', html)
+
 
 def _zone_data() -> pd.DataFrame:
     return pd.DataFrame(
@@ -117,6 +146,13 @@ def _zone_data() -> pd.DataFrame:
             "Selected_Metric": [150, 120, 80, 140, 40],
         }
     )
+
+
+def _matplotlib_figure() -> Figure:
+    figure = Figure(figsize=(2, 2), dpi=100)
+    axis = figure.add_subplot(111)
+    axis.plot([1, 2], [3, 4])
+    return figure
 
 
 if __name__ == "__main__":

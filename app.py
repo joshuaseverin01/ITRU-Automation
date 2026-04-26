@@ -66,6 +66,9 @@ from src.visualization import (
     build_volatility_revenue_scatter,
     create_pjm_animation_gif_bytes,
     create_pjm_matplotlib_figure,
+    gif_bytes_to_html_img,
+    matplotlib_figure_to_png_bytes,
+    matplotlib_figures_to_zip_bytes,
 )
 
 
@@ -1008,7 +1011,8 @@ def _render_iso_zone_performance_snapshot(
             f"{format_time_range_label(start_time, end_time, granularity)} to show whether leadership is persistent or episodic."
         )
         export_frames: list[pd.DataFrame] = []
-        export_figures: list[go.Figure] = []
+        snapshot_figures: list[object] = []
+        snapshot_names: list[str] = []
         for selected_time in selected_times:
             selected_time_label = format_time_label(selected_time, granularity)
             zone_values = aggregate_zone_metric(
@@ -1036,13 +1040,22 @@ def _render_iso_zone_performance_snapshot(
             )
             if chart_result.figure is not None:
                 _render_chart(st, chart_result.figure)
+                snapshot_figures.append(chart_result.figure)
+                snapshot_names.append(f"{_export_file_stem(selected_iso, selected_metric, selected_time_label, 'multi_snapshot')}.png")
             else:
                 st.warning(chart_result.message)
                 _render_snapshot_join_diagnostics(diagnostics)
+        if snapshot_figures:
+            st.download_button(
+                "Download multi-snapshot PNGs",
+                data=matplotlib_figures_to_zip_bytes(snapshot_figures, snapshot_names),
+                file_name=f"{_export_file_stem(selected_iso, selected_metric, format_time_range_label(start_time, end_time, granularity), 'multi_snapshot')}.zip",
+                mime="application/zip",
+            )
         if export_frames:
             _render_iso_export_report(
                 zone_data=pd.concat(export_frames, ignore_index=True),
-                figures=export_figures,
+                figures=[],
                 selected_iso=selected_iso,
                 selected_metric=selected_metric,
                 selected_period=format_time_range_label(start_time, end_time, granularity),
@@ -1129,9 +1142,13 @@ def _render_iso_zone_performance_snapshot(
                 f"Animation uses {len(gif_result.frame_labels)} evenly spaced {time_control_label.lower()} frame(s) from "
                 f"{format_time_range_label(start_time, end_time, granularity)} to show how zonal performance evolves over time."
             )
-            st.image(gif_result.gif_bytes)
+            st.markdown(
+                gif_bytes_to_html_img(gif_result.gif_bytes, "PJM zone performance animation"),
+                unsafe_allow_html=True,
+            )
+            st.caption("GIF preview loops in-browser using the same matplotlib map styling as the static views.")
             st.download_button(
-                "Download animation GIF",
+                "Download animated GIF",
                 data=gif_result.gif_bytes,
                 file_name=f"{_export_file_stem(selected_iso, selected_metric, format_time_range_label(start_time, end_time, granularity), 'animation')}.gif",
                 mime="image/gif",
@@ -1184,6 +1201,13 @@ def _render_iso_zone_performance_snapshot(
     )
     if chart_result.figure is not None:
         _render_chart(st, chart_result.figure)
+        download_label = "Download snapshot PNG" if view_mode == "Snapshot" else "Download time range PNG"
+        st.download_button(
+            download_label,
+            data=matplotlib_figure_to_png_bytes(chart_result.figure),
+            file_name=f"{_export_file_stem(selected_iso, selected_metric, time_label, view_mode.lower().replace(' ', '_'))}.png",
+            mime="image/png",
+        )
         _render_iso_export_report(
             zone_data=zone_values,
             figures=[],
