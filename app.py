@@ -114,6 +114,11 @@ def _inject_global_styles() -> None:
     st.markdown(
         """
         <style>
+        :root,
+        html,
+        body {
+            color-scheme: light !important;
+        }
         .stApp,
         [data-testid="stAppViewContainer"] {
             background: #E9FCE9;
@@ -130,11 +135,26 @@ def _inject_global_styles() -> None:
         [data-testid="stHeader"] {
             background: rgba(233, 252, 233, 0.92);
         }
+        [data-testid="stToolbar"] {
+            background: transparent !important;
+            color: #1F2937 !important;
+        }
+        [data-testid="stToolbar"] button {
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            box-shadow: none !important;
+        }
+        [data-testid="stToolbar"] button:hover,
+        [data-testid="stToolbar"] button:focus {
+            background: #F8FFF8 !important;
+            border-color: #A7DCA7 !important;
+        }
         [data-testid="stToolbar"] button,
         [data-testid="stToolbar"] button *,
         [data-testid="stToolbar"] svg,
         [data-testid="stToolbar"] path,
-        [data-testid="stToolbar"] [data-testid="stIconMaterial"] {
+        [data-testid="stToolbar"] [data-testid="stIconMaterial"],
+        [data-testid="stToolbar"] [role="img"] {
             color: #1F2937 !important;
             fill: #1F2937 !important;
             stroke: #1F2937 !important;
@@ -267,6 +287,14 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
             border-color: #A7DCA7 !important;
         }
+        .stMultiSelect div[data-baseweb="select"],
+        .stMultiSelect div[data-baseweb="select"] > div,
+        .stMultiSelect div[data-baseweb="select"] div[role="combobox"] {
+            overflow: visible !important;
+        }
+        .stMultiSelect div[data-baseweb="select"] > div {
+            padding-left: 0.45rem !important;
+        }
         div[data-baseweb="select"] span,
         div[data-baseweb="popover"] span,
         div[data-baseweb="menu"] li {
@@ -300,6 +328,9 @@ def _inject_global_styles() -> None:
         }
         div[data-baseweb="select"] div[data-baseweb="tag"] {
             overflow: visible !important;
+        }
+        .stMultiSelect div[data-baseweb="select"] div[data-baseweb="tag"]:first-of-type {
+            margin-left: 0.55rem !important;
         }
         div[data-baseweb="select"] div[data-baseweb="tag"] svg {
             flex-shrink: 0 !important;
