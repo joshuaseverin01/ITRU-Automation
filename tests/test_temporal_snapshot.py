@@ -1,0 +1,342 @@
+"""Tests for ISO zone snapshot time-series helpers."""
+
+from __future__ import annotations
+
+import unittest
+
+import pandas as pd
+
+from src.analysis import (
+    ALL_REVENUE_CATEGORIES,
+    SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+    SNAPSHOT_METRIC_MONTHLY_REVENUE,
+    SNAPSHOT_METRIC_REVENUE_PER_KW,
+    aggregate_zone_metric_over_range,
+    aggregate_zone_metric,
+    compute_cumulative_by_zone,
+)
+from src.geo import PjmZoneGeoJson
+from src.temporal import (
+    TIME_GRANULARITY_MONTHLY,
+    TIME_GRANULARITY_NONE,
+    TIME_GRANULARITY_TIMESTAMP,
+    detect_time_granularity,
+    filter_time_range,
+    select_evenly_spaced_snapshots,
+)
+from src.visualization import build_iso_zone_snapshot_map_bars, create_animated_zone_performance_figure
+
+
+class TemporalSnapshotTests(unittest.TestCase):
+    def test_monthly_granularity_detection(self) -> None:
+        dataframe = pd.DataFrame({"Month": ["2024-01", "2024-02"], "Revenue": [10, 20]})
+
+        self.assertEqual(detect_time_granularity(dataframe), TIME_GRANULARITY_MONTHLY)
+
+    def test_timestamp_granularity_detection_prefers_timestamp(self) -> None:
+        dataframe = pd.DataFrame(
+            {
+                "Month": ["2024-01", "2024-01"],
+                "Timestamp": ["2024-01-01 01:00", "2024-01-01 02:00"],
+                "Revenue": [10, 20],
+            }
+        )
+
+        self.assertEqual(detect_time_granularity(dataframe), TIME_GRANULARITY_TIMESTAMP)
+
+    def test_missing_time_column_detection(self) -> None:
+        dataframe = pd.DataFrame({"Zone": ["BGE"], "Revenue": [10]})
+
+        self.assertEqual(detect_time_granularity(dataframe), TIME_GRANULARITY_NONE)
+        self.assertTrue(filter_time_range(dataframe, "2024-01", "2024-02").empty)
+
+    def test_time_range_filtering_is_inclusive(self) -> None:
+        dataframe = pd.DataFrame(
+            {
+                "Month": ["2024-01", "2024-02", "2024-03"],
+                "Revenue": [10, 20, 30],
+            }
+        )
+
+        filtered = filter_time_range(dataframe, "2024-02", "2024-03")
+
+        self.assertEqual(filtered["Revenue"].tolist(), [20, 30])
+
+    def test_invalid_time_range_returns_empty(self) -> None:
+        dataframe = pd.DataFrame(
+            {
+                "Month": ["2024-01", "2024-02", "2024-03"],
+                "Revenue": [10, 20, 30],
+            }
+        )
+
+        filtered = filter_time_range(dataframe, "2024-03", "2024-01")
+
+        self.assertTrue(filtered.empty)
+
+    def test_compute_cumulative_by_zone_handles_negative_months(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        result = compute_cumulative_by_zone(dataframe, revenue_category=ALL_REVENUE_CATEGORIES)
+        bge = result.loc[result["Zone"] == "BGE"].sort_values("Time")
+        dpl = result.loc[result["Zone"] == "DPL"].sort_values("Time")
+
+        self.assertEqual(bge["Monthly_Revenue"].tolist(), [100, -40, 30])
+        self.assertEqual(bge["Cumulative_Revenue"].tolist(), [100, 60, 90])
+        self.assertEqual(dpl["Cumulative_Revenue"].tolist(), [-10, -15, 5])
+
+    def test_aggregate_zone_metric_selected_time_and_category(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        snapshot = aggregate_zone_metric(
+            dataframe,
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            time_point="2024-02",
+        )
+
+        self.assertEqual(snapshot["Zone"].tolist(), ["DPL", "BGE"])
+        self.assertEqual(snapshot["Selected_Metric"].tolist(), [-5, -40])
+        self.assertEqual(snapshot["Time_Label"].unique().tolist(), ["February 2024"])
+
+    def test_revenue_per_kw_snapshot_uses_zone_average(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        snapshot = aggregate_zone_metric(
+            dataframe,
+            metric=SNAPSHOT_METRIC_REVENUE_PER_KW,
+            category="Energy",
+            time_point="2024-01",
+        )
+
+        self.assertEqual(snapshot.loc[snapshot["Zone"] == "BGE", "Selected_Metric"].iloc[0], 150)
+        self.assertEqual(snapshot.loc[snapshot["Zone"] == "DPL", "Selected_Metric"].iloc[0], 90)
+
+    def test_no_data_selected_range(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        filtered = filter_time_range(dataframe, "2025-01", "2025-02")
+        snapshot = aggregate_zone_metric(
+            filtered,
+            metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category="Energy",
+            time_point="2025-01",
+        )
+
+        self.assertTrue(filtered.empty)
+        self.assertTrue(snapshot.empty)
+
+    def test_aggregate_zone_metric_over_range_sums_revenue_metrics(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        monthly_range = aggregate_zone_metric_over_range(
+            dataframe,
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            start_time="2024-02",
+            end_time="2024-03",
+        )
+        cumulative_range = aggregate_zone_metric_over_range(
+            dataframe,
+            metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category="Energy",
+            start_time="2024-02",
+            end_time="2024-03",
+        )
+
+        self.assertEqual(monthly_range["Zone"].tolist(), ["DPL", "BGE"])
+        self.assertEqual(monthly_range["Selected_Metric"].tolist(), [15, -10])
+        self.assertEqual(cumulative_range["Selected_Metric"].tolist(), [15, -10])
+        self.assertEqual(monthly_range["Time_Label"].unique().tolist(), ["February 2024 to March 2024"])
+
+    def test_aggregate_zone_metric_over_range_averages_revenue_per_kw(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        range_values = aggregate_zone_metric_over_range(
+            dataframe,
+            metric=SNAPSHOT_METRIC_REVENUE_PER_KW,
+            category="Energy",
+            start_time="2024-02",
+            end_time="2024-03",
+        )
+
+        self.assertEqual(range_values.loc[range_values["Zone"] == "BGE", "Selected_Metric"].iloc[0], 150)
+        self.assertEqual(range_values.loc[range_values["Zone"] == "DPL", "Selected_Metric"].iloc[0], 105)
+
+    def test_aggregate_zone_metric_over_range_invalid_or_no_data_range(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        invalid = aggregate_zone_metric_over_range(
+            dataframe,
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            start_time="2024-03",
+            end_time="2024-01",
+        )
+        no_data = aggregate_zone_metric_over_range(
+            dataframe,
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            start_time="2025-01",
+            end_time="2025-02",
+        )
+
+        self.assertTrue(invalid.empty)
+        self.assertTrue(no_data.empty)
+
+    def test_select_evenly_spaced_snapshots_caps_to_available_points(self) -> None:
+        dataframe = _monthly_zone_frame()
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2024-01", "2024-03", 10)
+
+        self.assertEqual([snapshot.strftime("%Y-%m") for snapshot in snapshots], ["2024-01", "2024-02", "2024-03"])
+
+    def test_select_evenly_spaced_snapshots_returns_exact_requested_number(self) -> None:
+        dataframe = _long_monthly_frame()
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2024-01", "2024-06", 4)
+
+        self.assertEqual(len(snapshots), 4)
+        self.assertEqual(snapshots[0].strftime("%Y-%m"), "2024-01")
+        self.assertEqual(snapshots[-1].strftime("%Y-%m"), "2024-06")
+
+    def test_select_evenly_spaced_snapshots_invalid_range_returns_empty(self) -> None:
+        dataframe = _long_monthly_frame()
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2024-06", "2024-01", 4)
+
+        self.assertEqual(snapshots, [])
+
+    def test_select_evenly_spaced_snapshots_single_available_timestamp(self) -> None:
+        dataframe = pd.DataFrame(
+            {
+                "Timestamp": ["2024-01-01 14:00"],
+                "Zone": ["BGE"],
+                "ISO_Region": ["PJM"],
+                "Revenue": [25],
+            }
+        )
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2024-01-01 14:00", "2024-01-01 14:00", 6)
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].strftime("%Y-%m-%d %H:%M"), "2024-01-01 14:00")
+
+    def test_select_evenly_spaced_snapshots_no_data_range(self) -> None:
+        dataframe = _long_monthly_frame()
+
+        snapshots = select_evenly_spaced_snapshots(dataframe, "2025-01", "2025-03", 3)
+
+        self.assertEqual(snapshots, [])
+
+    def test_missing_geojson_returns_fallback_message(self) -> None:
+        snapshot = aggregate_zone_metric(
+            _monthly_zone_frame(),
+            metric=SNAPSHOT_METRIC_MONTHLY_REVENUE,
+            category="Energy",
+            time_point="2024-01",
+        )
+
+        chart, diagnostics = build_iso_zone_snapshot_map_bars(snapshot, "PJM", None)
+
+        self.assertIsNone(chart.figure)
+        self.assertEqual(chart.message, "PJM zone map requires the PJM GeoJSON file.")
+        self.assertFalse(diagnostics["is_available"])
+
+    def test_animation_builder_creates_frames_and_controls(self) -> None:
+        dataframe = _monthly_zone_frame()
+        snapshots = [
+            aggregate_zone_metric(
+                dataframe,
+                metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+                category="Energy",
+                time_point=month,
+            )
+            for month in ["2024-01", "2024-02"]
+        ]
+
+        chart, diagnostics = create_animated_zone_performance_figure(
+            snapshots,
+            iso_region="PJM",
+            pjm_geojson=_tiny_pjm_geojson(),
+            metric_label=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category_label="Energy",
+            frame_labels=["January 2024", "February 2024"],
+        )
+
+        self.assertTrue(diagnostics["is_available"])
+        self.assertIsNotNone(chart.figure)
+        self.assertEqual(len(chart.figure.frames), 2)
+        self.assertEqual(chart.figure.frames[0].name, "January 2024")
+        layout = chart.figure.to_dict()["layout"]
+        self.assertIn("updatemenus", layout)
+        self.assertIn("sliders", layout)
+
+    def test_animation_builder_missing_geojson_returns_message(self) -> None:
+        snapshot = aggregate_zone_metric(
+            _monthly_zone_frame(),
+            metric=SNAPSHOT_METRIC_CUMULATIVE_REVENUE,
+            category="Energy",
+            time_point="2024-01",
+        )
+
+        chart, diagnostics = create_animated_zone_performance_figure([snapshot], "PJM", None)
+
+        self.assertIsNone(chart.figure)
+        self.assertEqual(chart.message, "PJM zone map requires the PJM GeoJSON file for animation.")
+        self.assertFalse(diagnostics["is_available"])
+
+
+def _monthly_zone_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Device": ["A", "A", "A", "B", "B", "B"],
+            "Zone": ["BGE", "BGE", "BGE", "DPL", "DPL", "DPL"],
+            "ISO_Region": ["PJM"] * 6,
+            "Revenue_Category": ["Energy"] * 6,
+            "Month": ["2024-01", "2024-02", "2024-03", "2024-01", "2024-02", "2024-03"],
+            "Revenue": [100, -40, 30, -10, -5, 20],
+            "Revenue_per_kW": [150, 170, 130, 90, 100, 110],
+        }
+    )
+
+
+def _long_monthly_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Zone": ["BGE"] * 6,
+            "ISO_Region": ["PJM"] * 6,
+            "Revenue_Category": ["Energy"] * 6,
+            "Month": ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06"],
+            "Revenue": [10, 20, 30, 40, 50, 60],
+        }
+    )
+
+
+def _tiny_pjm_geojson() -> PjmZoneGeoJson:
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"Zone": "BGE", "Zone_Normalized": "BGE"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-77.0, 39.0], [-76.0, 39.0], [-76.0, 40.0], [-77.0, 40.0], [-77.0, 39.0]]],
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {"Zone": "DPL", "Zone_Normalized": "DPL"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-76.0, 38.0], [-75.0, 38.0], [-75.0, 39.0], [-76.0, 39.0], [-76.0, 38.0]]],
+                },
+            },
+        ],
+    }
+    return PjmZoneGeoJson(geojson=geojson, zone_property="Zone", zone_count=2, zones=["BGE", "DPL"])
+
+
+if __name__ == "__main__":
+    unittest.main()
