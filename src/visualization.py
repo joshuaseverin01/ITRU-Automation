@@ -26,7 +26,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from PIL import Image
-from matplotlib.colors import LinearSegmentedColormap, to_hex
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as MplPath
@@ -91,30 +91,16 @@ ISO_ZONE_SNAPSHOT_METRIC_LABELS = {
 }
 REVENUE_GREEN_COLORSCALE = [
     (0.0, "#D9FAD7"),
-    (0.09, "#D0F8CC"),
-    (0.18, "#C6F7C2"),
-    (0.27, "#BCF5B8"),
-    (0.36, "#B1F3AE"),
-    (0.45, "#A7F2A4"),
-    (0.55, "#9BF09A"),
-    (0.64, "#90EE90"),
-    (0.73, "#72E972"),
-    (0.82, "#4AE34A"),
-    (0.91, "#22DD22"),
+    (0.25, "#B1F3AE"),
+    (0.5, "#72E972"),
+    (0.75, "#4AE34A"),
     (1.0, "#1CB51C"),
 ]
 MATPLOTLIB_REVENUE_PALETTE = [
     "#D9FAD7",
-    "#D0F8CC",
-    "#C6F7C2",
-    "#BCF5B8",
     "#B1F3AE",
-    "#A7F2A4",
-    "#9BF09A",
-    "#90EE90",
     "#72E972",
     "#4AE34A",
-    "#22DD22",
     "#1CB51C",
 ]
 MATPLOTLIB_NO_DATA_COLOR = "#f3f4f6"
@@ -124,6 +110,10 @@ MATPLOTLIB_PANEL_BG = "#FFFFFF"
 MATPLOTLIB_TEXT_COLOR = "#1F2937"
 MATPLOTLIB_MUTED_TEXT_COLOR = "#1f2937"
 MATPLOTLIB_LABEL_STROKE = "#F8FFF8"
+PLOTLY_BG = "#F8FFF8"
+PLOTLY_GRID = "#D6EFD6"
+PLOTLY_TEXT = "#1F2937"
+PLOTLY_COLOR_SEQUENCE = ["#1CB51C", "#4AE34A", "#72E972", "#0F7A0F", "#86C986", "#B1F3AE"]
 MATPLOTLIB_MAP_PADDING_RATIO = 0.035
 MATPLOTLIB_LABEL_NUDGES = {
     "BGE": (-0.06, -0.03),
@@ -186,10 +176,11 @@ def build_node_map(dataframe: pd.DataFrame) -> ChartResult:
         hover_data=hover_columns,
         scope="usa",
         projection="albers usa",
-        color_continuous_scale="Viridis",
+        color_continuous_scale=REVENUE_GREEN_COLORSCALE,
         title="Node Opportunity Map",
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=460)
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure, status.message)
 
 
@@ -259,8 +250,10 @@ def build_top_nodes_bar(dataframe: pd.DataFrame, top_n: int = 10) -> ChartResult
         orientation="h",
         hover_data=hover_columns,
         title=f"Top {min(top_n, len(chart_data))} Nodes by {metric_column.replace('_', ' ')}",
+        color_discrete_sequence=PLOTLY_COLOR_SEQUENCE,
     )
     figure.update_layout(yaxis=dict(autorange="reversed"), margin=dict(l=0, r=0, t=48, b=0), height=420)
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure)
 
 
@@ -295,8 +288,10 @@ def build_volatility_revenue_scatter(dataframe: pd.DataFrame) -> ChartResult:
         hover_name=hover_name,
         hover_data=hover_columns,
         title="Volatility vs Revenue per kW",
+        color_discrete_sequence=PLOTLY_COLOR_SEQUENCE,
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=430)
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure)
 
 
@@ -330,8 +325,10 @@ def build_monthly_revenue_chart(dataframe: pd.DataFrame, group_by: str = "Revenu
         color=group_by if group_by else None,
         markers=True,
         title=f"Monthly Revenue by {group_by.replace('_', ' ')}" if group_by else "Monthly Revenue",
+        color_discrete_sequence=PLOTLY_COLOR_SEQUENCE,
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=430)
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure)
 
 
@@ -362,8 +359,10 @@ def build_monthly_revenue_bar(dataframe: pd.DataFrame, group_by: str = "Zone") -
         x=group_by,
         y="Revenue",
         title=f"Total Monthly Revenue by {group_by.replace('_', ' ')}",
+        color_discrete_sequence=PLOTLY_COLOR_SEQUENCE,
     )
     figure.update_layout(margin=dict(l=0, r=0, t=48, b=0), height=380)
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure)
 
 
@@ -802,17 +801,37 @@ def _metric_color(value: float, value_min: float, value_max: float, cmap: Linear
     return map_value_to_color(value, value_min, value_max)
 
 
-def _legacy_metric_color(value: float, value_min: float, value_max: float, cmap: LinearSegmentedColormap) -> object:
-    if math.isclose(value_min, value_max):
-        normalized = 0.5
-    else:
-        normalized = (float(value) - value_min) / (value_max - value_min)
-    return cmap(float(np.clip(normalized, 0.0, 1.0)))
-
-
 def _metric_color_hex(value: float, value_min: float, value_max: float) -> str:
-    legacy_cmap = LinearSegmentedColormap.from_list("flexworks_legacy_revenue_green", ["#cfecc8", "#a1d99b", "#74c476", "#238b45", "#006d2c"])
-    return to_hex(_legacy_metric_color(value, value_min, value_max, legacy_cmap))
+    return map_value_to_color(value, value_min, value_max)
+
+
+def _apply_plotly_light_theme(figure: go.Figure) -> None:
+    figure.update_layout(
+        paper_bgcolor=PLOTLY_BG,
+        plot_bgcolor=PLOTLY_BG,
+        font=dict(color=PLOTLY_TEXT),
+        title_font=dict(color=PLOTLY_TEXT),
+        legend=dict(font=dict(color=PLOTLY_TEXT), bgcolor=PLOTLY_BG),
+        colorway=PLOTLY_COLOR_SEQUENCE,
+    )
+    figure.update_xaxes(
+        gridcolor=PLOTLY_GRID,
+        zerolinecolor=PLOTLY_GRID,
+        linecolor=PLOTLY_GRID,
+        tickfont=dict(color=PLOTLY_TEXT),
+        title_font=dict(color=PLOTLY_TEXT),
+    )
+    figure.update_yaxes(
+        gridcolor=PLOTLY_GRID,
+        zerolinecolor=PLOTLY_GRID,
+        linecolor=PLOTLY_GRID,
+        tickfont=dict(color=PLOTLY_TEXT),
+        title_font=dict(color=PLOTLY_TEXT),
+    )
+    try:
+        figure.update_geos(bgcolor=PLOTLY_BG, lakecolor=PLOTLY_BG, landcolor="#E9FCE9", subunitcolor=PLOTLY_GRID)
+    except Exception:
+        pass
 
 
 def build_iso_zone_snapshot_map_bars(
@@ -968,10 +987,11 @@ def build_iso_zone_snapshot_map_bars(
         showlegend=False,
         height=430 if compact else 640,
         margin=dict(l=0, r=24, t=86, b=58) if compact else dict(l=0, r=28, t=106, b=76),
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
+        paper_bgcolor=PLOTLY_BG,
+        plot_bgcolor=PLOTLY_BG,
         bargap=0.16,
     )
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure, None), diagnostics
 
 
@@ -1148,6 +1168,7 @@ def create_animated_zone_performance_figure(
             }
         ],
     )
+    _apply_plotly_light_theme(figure)
     return ChartResult(figure, None), diagnostics
 
 

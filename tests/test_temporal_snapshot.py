@@ -320,11 +320,11 @@ class TemporalSnapshotTests(unittest.TestCase):
         mid_color = _metric_color_hex(50, 0, 100)
         high_color = _metric_color_hex(100, 0, 100)
 
-        self.assertEqual(low_color.lower(), "#cfecc8")
-        self.assertEqual(high_color.lower(), "#006d2c")
+        self.assertEqual(low_color.lower(), "#d9fad7")
+        self.assertEqual(high_color.lower(), "#1cb51c")
         self.assertGreater(_hex_luminance(low_color), _hex_luminance(mid_color))
         self.assertGreater(_hex_luminance(mid_color), _hex_luminance(high_color))
-        self.assertGreater(_hex_luminance(low_color) - _hex_luminance(high_color), 0.45)
+        self.assertGreater(_hex_luminance(low_color) - _hex_luminance(high_color), 0.25)
 
     def test_interpolated_animation_frames_increase_frame_count_and_preserve_endpoints(self) -> None:
         start_frame = pd.DataFrame({"Zone_Normalized": ["BGE"], "Zone": ["BGE"], "Selected_Metric": [10.0]})

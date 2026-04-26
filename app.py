@@ -119,6 +119,14 @@ def _inject_global_styles() -> None:
             background: #E9FCE9;
             color: #1F2937;
         }
+        html, body, p, label, span,
+        [data-testid="stMarkdownContainer"],
+        [data-testid="stCaptionContainer"],
+        [data-testid="stWidgetLabel"],
+        [data-testid="stMetricLabel"],
+        [data-testid="stMetricValue"] {
+            color: #1F2937 !important;
+        }
         [data-testid="stHeader"] {
             background: rgba(233, 252, 233, 0.92);
         }
@@ -131,17 +139,79 @@ def _inject_global_styles() -> None:
             color: #1F2937;
         }
         div[data-testid="stVerticalBlockBorderWrapper"],
-        div[data-testid="stExpander"] {
+        div[data-testid="stExpander"],
+        div[data-testid="stMetric"],
+        div[data-testid="stDataFrame"] {
             background: #F8FFF8;
-        }
-        .stButton > button {
-            border-color: #86C986;
             color: #1F2937;
+            border-color: #B7E4B7;
         }
-        .stButton > button[kind="primary"] {
-            background: #1CB51C;
-            border-color: #1CB51C;
-            color: #FFFFFF;
+        div[data-testid="stAlert"] {
+            background: #F0FFF0 !important;
+            color: #1F2937 !important;
+            border: 1px solid #A7DCA7;
+        }
+        div[data-testid="stAlert"]:has(svg[aria-label*="warning" i]) {
+            background: #FFF8D6 !important;
+            border-color: #E4C65B !important;
+        }
+        div[data-testid="stAlert"]:has(svg[aria-label*="info" i]) {
+            background: #F0FFF0 !important;
+            border-color: #A7DCA7 !important;
+        }
+        div[data-testid="stAlert"] * {
+            color: #1F2937 !important;
+        }
+        div[data-testid="stFileUploader"] section {
+            background: #F8FFF8 !important;
+            border: 1px dashed #A7DCA7 !important;
+            color: #1F2937 !important;
+        }
+        .stButton > button,
+        .stDownloadButton > button,
+        div[data-testid="stFileUploader"] button {
+            background: #FFFFFF !important;
+            border: 1px solid #86C986 !important;
+            color: #1F2937 !important;
+        }
+        .stButton > button *,
+        .stDownloadButton > button *,
+        div[data-testid="stFileUploader"] button * {
+            color: #1F2937 !important;
+        }
+        .stButton > button[kind="primary"],
+        .stDownloadButton > button[kind="primary"] {
+            background: #1CB51C !important;
+            border-color: #1CB51C !important;
+            color: #FFFFFF !important;
+        }
+        .stButton > button[kind="primary"] *,
+        .stDownloadButton > button[kind="primary"] * {
+            color: #FFFFFF !important;
+        }
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="select"] input,
+        div[data-baseweb="input"] input {
+            background: #FFFFFF !important;
+            color: #1F2937 !important;
+            border-color: #A7DCA7 !important;
+        }
+        div[data-baseweb="select"] span,
+        div[data-baseweb="popover"] span,
+        div[data-baseweb="menu"] li {
+            color: #1F2937 !important;
+        }
+        div[role="radiogroup"] label,
+        div[role="radiogroup"] span,
+        div[data-testid="stSlider"] label,
+        div[data-testid="stSlider"] span {
+            color: #1F2937 !important;
+        }
+        div[data-testid="stSlider"] [data-baseweb="slider"] div {
+            color: #1F2937 !important;
+        }
+        div[data-testid="stDataFrame"] * {
+            color: #1F2937 !important;
         }
         </style>
         """,
@@ -1508,9 +1578,6 @@ def _render_iso_export_report(
                 png_col.warning(png_message)
         else:
             png_col.warning("PNG export is available for single-figure modes. HTML export is still available.")
-    else:
-        html_col.info("Interactive HTML visual export is available for Plotly animation. Static PJM maps render with matplotlib.")
-
     md_col.download_button(
         "Summary MD",
         data=summary.markdown.encode("utf-8"),
