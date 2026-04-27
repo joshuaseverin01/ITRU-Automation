@@ -207,9 +207,9 @@ def _inject_global_styles() -> None:
         div[data-baseweb="modal"] {
             position: fixed !important;
             inset: 0;
-            background: rgba(31, 41, 55, 0.35) !important;
-            backdrop-filter: blur(4px) !important;
-            -webkit-backdrop-filter: blur(4px) !important;
+            background: rgba(31, 41, 55, 0.18) !important;
+            backdrop-filter: blur(2px) !important;
+            -webkit-backdrop-filter: blur(2px) !important;
             overflow-y: auto !important;
             padding: 24px !important;
         }
