@@ -207,16 +207,21 @@ def _inject_global_styles() -> None:
         div[data-baseweb="modal"] {
             position: fixed !important;
             inset: 0;
-            background: rgba(31, 41, 55, 0.18) !important;
-            backdrop-filter: blur(2px) !important;
-            -webkit-backdrop-filter: blur(2px) !important;
-            overflow-y: auto !important;
-            padding: 24px !important;
+            z-index: 9999 !important;
+            background: rgba(31, 41, 55, 0.16) !important;
+            backdrop-filter: blur(3px) !important;
+            -webkit-backdrop-filter: blur(3px) !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: center !important;
+            padding: 48px 24px !important;
+            overflow: hidden !important;
         }
         div[data-baseweb="modal"] > div,
         div[data-baseweb="modal"] > div > div,
         div[data-baseweb="modal"] div[role="presentation"] {
             background: transparent !important;
+            box-shadow: none !important;
         }
         div[role="dialog"],
         div[aria-modal="true"],
@@ -227,15 +232,17 @@ def _inject_global_styles() -> None:
             position: relative;
             z-index: 1;
             border-radius: 16px !important;
-            box-shadow: 0 24px 80px rgba(31, 41, 55, 0.22) !important;
-            max-height: calc(100vh - 48px) !important;
+            box-shadow: 0 24px 80px rgba(31, 41, 55, 0.18) !important;
+            width: min(640px, 92vw) !important;
+            max-height: calc(100vh - 96px) !important;
             overflow-y: auto !important;
+            padding: 28px 32px !important;
         }
         div[role="dialog"] section,
         div[aria-modal="true"] section {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
-            max-height: calc(100vh - 48px) !important;
+            max-height: calc(100vh - 96px) !important;
             overflow-y: auto !important;
         }
         div[role="dialog"] *,
@@ -465,6 +472,25 @@ def _apply_animation_metric_default(
 def _render_walkthrough() -> None:
     if not _ensure_walkthrough_state(st.session_state):
         return
+
+    st.markdown(
+        """
+        <style>
+        html,
+        body,
+        .stApp,
+        [data-testid="stAppViewContainer"] {
+            overflow: hidden !important;
+        }
+        div[role="dialog"],
+        div[aria-modal="true"],
+        div[data-testid="stDialog"] {
+            overflow-y: auto !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if callable(getattr(st, "dialog", None)):
         _render_walkthrough_dialog()
