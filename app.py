@@ -208,9 +208,7 @@ def _inject_global_styles() -> None:
             position: fixed !important;
             inset: 0 !important;
             z-index: 9999 !important;
-            background: rgba(31, 41, 55, 0.10) !important;
-            backdrop-filter: blur(2px) !important;
-            -webkit-backdrop-filter: blur(2px) !important;
+            background: rgba(31, 41, 55, 0.12) !important;
             display: flex !important;
             align-items: flex-start !important;
             justify-content: center !important;
@@ -234,18 +232,15 @@ def _inject_global_styles() -> None:
             padding: 0 !important;
             margin: 0 !important;
         }
-        div[role="dialog"],
-        div[aria-modal="true"]:not([data-baseweb="modal"]),
-        div[data-testid="stDialog"] {
+        div[data-baseweb="modal"] div[role="dialog"] {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
             border: 1px solid #A7DCA7 !important;
-            position: fixed !important;
-            top: 48px !important;
-            left: 50% !important;
-            transform: translateX(-50%) !important;
+            position: relative !important;
+            top: auto !important;
+            left: auto !important;
+            transform: none !important;
             margin: 0 auto !important;
-            z-index: 1;
             border-radius: 16px !important;
             box-shadow: 0 24px 80px rgba(31, 41, 55, 0.18) !important;
             width: min(640px, 92vw) !important;
@@ -255,29 +250,24 @@ def _inject_global_styles() -> None:
             box-sizing: border-box !important;
             display: block !important;
         }
-        div[role="dialog"] section,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) section {
-            background: #F8FFF8 !important;
+        div[data-baseweb="modal"] div[data-testid="stDialog"]:not([role="dialog"]),
+        div[data-baseweb="modal"] div[role="dialog"] section {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
             color: #1F2937 !important;
-            max-height: calc(100vh - 96px) !important;
-            overflow-y: auto !important;
+            overflow: visible !important;
             display: block !important;
             width: 100% !important;
             max-width: 100% !important;
             box-sizing: border-box !important;
         }
-        div[role="dialog"] h1,
-        div[role="dialog"] h2,
-        div[role="dialog"] h3,
-        div[role="dialog"] h4,
-        div[role="dialog"] p,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) h1,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) h2,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) h3,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) h4,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) p,
-        div[role="dialog"] [data-testid="stMarkdownContainer"],
-        div[aria-modal="true"]:not([data-baseweb="modal"]) [data-testid="stMarkdownContainer"] {
+        div[data-baseweb="modal"] div[role="dialog"] h1,
+        div[data-baseweb="modal"] div[role="dialog"] h2,
+        div[data-baseweb="modal"] div[role="dialog"] h3,
+        div[data-baseweb="modal"] div[role="dialog"] h4,
+        div[data-baseweb="modal"] div[role="dialog"] p,
+        div[data-baseweb="modal"] div[role="dialog"] [data-testid="stMarkdownContainer"] {
             display: block !important;
             width: 100% !important;
             max-width: 100% !important;
@@ -285,30 +275,27 @@ def _inject_global_styles() -> None:
             white-space: normal !important;
             box-sizing: border-box !important;
         }
-        div[role="dialog"] *,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) * {
+        div[data-baseweb="modal"] div[role="dialog"] * {
             color: #1F2937 !important;
         }
-        div[role="dialog"] button,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) button {
+        div[data-baseweb="modal"] div[role="dialog"] button {
             background: #FFFFFF !important;
             border: 1px solid #86C986 !important;
             color: #1F2937 !important;
         }
-        div[role="dialog"] button[aria-label="Close"],
-        div[aria-modal="true"]:not([data-baseweb="modal"]) button[aria-label="Close"] {
+        div[data-baseweb="modal"] div[role="dialog"] button[aria-label="Close"] {
             background: #FFFFFF !important;
             border: 1px solid #A7DCA7 !important;
             color: #1F2937 !important;
         }
-        div[role="dialog"] button[data-testid="baseButton-primary"],
-        div[aria-modal="true"]:not([data-baseweb="modal"]) button[data-testid="baseButton-primary"] {
+        div[data-baseweb="modal"] div[role="dialog"] button[data-testid="baseButton-primary"] {
             background: #1CB51C !important;
             border-color: #1CB51C !important;
             color: #FFFFFF !important;
+            display: inline-flex !important;
+            visibility: visible !important;
         }
-        div[role="dialog"] button[data-testid="baseButton-primary"] *,
-        div[aria-modal="true"]:not([data-baseweb="modal"]) button[data-testid="baseButton-primary"] * {
+        div[data-baseweb="modal"] div[role="dialog"] button[data-testid="baseButton-primary"] * {
             color: #FFFFFF !important;
         }
         div[data-testid="stFileUploader"] section {
