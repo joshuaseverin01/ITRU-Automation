@@ -427,19 +427,19 @@ def animation_frames_to_html_player(
     first_label = labels[0].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if labels else ""
 
     return f"""
-    <div id="flexworks-player-{player_id}" style="font-family: Arial, sans-serif; width: 100%; color: #111827;">
-      <img
-        id="flexworks-player-{player_id}-image"
-        src="{encoded_frames[0]}"
-        alt="{escaped_alt}"
-        style="width: 100%; height: auto; border-radius: 8px; display: block; background: #f3f4f6;"
-      />
-      <div style="display: flex; align-items: center; gap: 0.55rem; margin-top: 0.6rem;">
+    <div id="flexworks-player-{player_id}" style="font-family: Arial, sans-serif; width: 100%; color: #111827; background: #F6FFF6; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.55rem 0;">
         <button id="flexworks-player-{player_id}-play" style="background: #166534; color: white; border: 0; border-radius: 6px; padding: 0.42rem 0.72rem; cursor: pointer;">Play</button>
         <button id="flexworks-player-{player_id}-pause" style="background: #334155; color: white; border: 0; border-radius: 6px; padding: 0.42rem 0.72rem; cursor: pointer;">Pause</button>
         <input id="flexworks-player-{player_id}-slider" type="range" min="0" max="{len(encoded_frames) - 1}" value="0" step="1" style="flex: 1;" />
         <span id="flexworks-player-{player_id}-label" style="min-width: 9rem; text-align: right; font-size: 0.9rem; color: #1f2937;">{first_label}</span>
       </div>
+      <img
+        id="flexworks-player-{player_id}-image"
+        src="{encoded_frames[0]}"
+        alt="{escaped_alt}"
+        style="width: 100%; max-height: 690px; height: auto; object-fit: contain; border-radius: 8px; display: block; background: #F6FFF6;"
+      />
     </div>
     <script>
       (() => {{
@@ -1447,6 +1447,7 @@ def _matplotlib_figure_to_frame_png_bytes(figure: Figure) -> bytes:
         dpi=105,
         facecolor=figure.get_facecolor(),
         bbox_inches="tight",
+        pad_inches=0.08,
     )
     return buffer.getvalue()
 

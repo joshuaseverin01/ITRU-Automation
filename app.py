@@ -89,7 +89,7 @@ DEMO_FILE_PATHS = (
 DEFAULT_PJM_GEOJSON_PATH = DEMO_ZONES_GEOJSON_PATH
 MAX_MULTI_SNAPSHOTS = 12
 MAX_ANIMATION_FRAMES = 60
-ANIMATION_PLAYER_HEIGHT = 700
+ANIMATION_PLAYER_HEIGHT = 760
 ANALYSIS_STATE_KEY = "flexworks_analysis_state"
 WALKTHROUGH_STATE_KEY = "show_walkthrough"
 ISO_TIME_VIEW_MODE_KEY = "iso_time_view_mode"
@@ -669,6 +669,14 @@ def _render_app() -> None:
         elif st.session_state.get("demo_files_loaded"):
             st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
     if demo_clicked:
+        demo_progress = st.sidebar.progress(0)
+        with st.sidebar.status("Loading bundled demo files...", expanded=True) as status:
+            st.write("Checking bundled demo files...")
+            demo_progress.progress(50)
+            st.write("Demo files staged for analysis.")
+            demo_progress.progress(100)
+            status.update(label="Demo files loaded.", state="complete", expanded=False)
+        demo_progress.empty()
         st.session_state["demo_files_loaded"] = True
         st.session_state["demo_files_notice"] = True
     if st.session_state.pop("demo_files_notice", False):
@@ -904,8 +912,12 @@ def _run_analysis_workflow(
     progress = st.progress(0)
 
     try:
-        with st.status("Running analysis...", expanded=True) as status:
-            st.write("Reading uploaded file...")
+        status_label = "Running demo analysis..." if use_demo_files else "Running analysis..."
+        with st.status(status_label, expanded=True) as status:
+            if use_demo_files:
+                st.write("Loading bundled demo files...")
+                progress.progress(10)
+            st.write("Reading Flexworks export...")
             parsed_exports = _load_flexworks_exports(
                 uploaded_exports,
                 use_demo_files,
@@ -944,11 +956,11 @@ def _run_analysis_workflow(
                 cleaned_with_coordinates, _ = merge_coordinate_lookup(cleaned_data, coordinate_lookup)
             progress.progress(50)
 
-            st.write("Matching zones...")
+            st.write("Mapping devices to zones...")
             pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson, use_demo_files=use_demo_files)
             progress.progress(70)
 
-            st.write("Building market intelligence outputs...")
+            st.write("Building visualizations...")
             if node_data is not None:
                 monthly_revenue, monthly_notes = join_monthly_to_device_summary(monthly_data, cleaned_with_coordinates)
             progress.progress(90)
