@@ -216,12 +216,23 @@ def _inject_global_styles() -> None:
             justify-content: center !important;
             padding: 48px 24px !important;
             overflow: hidden !important;
+            box-sizing: border-box !important;
         }
         div[data-baseweb="modal"] > div,
-        div[data-baseweb="modal"] > div > div,
+        div[data-baseweb="modal"] > div > div {
+            display: contents !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
         div[data-baseweb="modal"] div[role="presentation"] {
             background: transparent !important;
+            border: 0 !important;
             box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
         div[role="dialog"],
         div[aria-modal="true"],
@@ -229,7 +240,11 @@ def _inject_global_styles() -> None:
             background: #F8FFF8 !important;
             color: #1F2937 !important;
             border: 1px solid #A7DCA7 !important;
-            position: relative;
+            position: fixed !important;
+            top: 48px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            margin: 0 auto !important;
             z-index: 1;
             border-radius: 16px !important;
             box-shadow: 0 24px 80px rgba(31, 41, 55, 0.18) !important;
@@ -237,6 +252,7 @@ def _inject_global_styles() -> None:
             max-height: calc(100vh - 96px) !important;
             overflow-y: auto !important;
             padding: 28px 32px !important;
+            box-sizing: border-box !important;
         }
         div[role="dialog"] section,
         div[aria-modal="true"] section {
