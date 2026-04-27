@@ -206,7 +206,7 @@ def _inject_global_styles() -> None:
         }
         div[data-baseweb="modal"] {
             position: fixed !important;
-            inset: 0;
+            inset: 0 !important;
             z-index: 9999 !important;
             background: rgba(31, 41, 55, 0.10) !important;
             backdrop-filter: blur(2px) !important;
@@ -215,7 +215,7 @@ def _inject_global_styles() -> None:
             align-items: flex-start !important;
             justify-content: center !important;
             padding: 48px 24px !important;
-            overflow: hidden !important;
+            overflow-y: auto !important;
             box-sizing: border-box !important;
         }
         div[data-baseweb="modal"] > div,
@@ -235,7 +235,7 @@ def _inject_global_styles() -> None:
             margin: 0 !important;
         }
         div[role="dialog"],
-        div[aria-modal="true"],
+        div[aria-modal="true"]:not([data-baseweb="modal"]),
         div[data-testid="stDialog"] {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
@@ -256,7 +256,7 @@ def _inject_global_styles() -> None:
             display: block !important;
         }
         div[role="dialog"] section,
-        div[aria-modal="true"] section {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) section {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
             max-height: calc(100vh - 96px) !important;
@@ -271,13 +271,13 @@ def _inject_global_styles() -> None:
         div[role="dialog"] h3,
         div[role="dialog"] h4,
         div[role="dialog"] p,
-        div[aria-modal="true"] h1,
-        div[aria-modal="true"] h2,
-        div[aria-modal="true"] h3,
-        div[aria-modal="true"] h4,
-        div[aria-modal="true"] p,
+        div[aria-modal="true"]:not([data-baseweb="modal"]) h1,
+        div[aria-modal="true"]:not([data-baseweb="modal"]) h2,
+        div[aria-modal="true"]:not([data-baseweb="modal"]) h3,
+        div[aria-modal="true"]:not([data-baseweb="modal"]) h4,
+        div[aria-modal="true"]:not([data-baseweb="modal"]) p,
         div[role="dialog"] [data-testid="stMarkdownContainer"],
-        div[aria-modal="true"] [data-testid="stMarkdownContainer"] {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) [data-testid="stMarkdownContainer"] {
             display: block !important;
             width: 100% !important;
             max-width: 100% !important;
@@ -286,29 +286,29 @@ def _inject_global_styles() -> None:
             box-sizing: border-box !important;
         }
         div[role="dialog"] *,
-        div[aria-modal="true"] * {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) * {
             color: #1F2937 !important;
         }
         div[role="dialog"] button,
-        div[aria-modal="true"] button {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) button {
             background: #FFFFFF !important;
             border: 1px solid #86C986 !important;
             color: #1F2937 !important;
         }
         div[role="dialog"] button[aria-label="Close"],
-        div[aria-modal="true"] button[aria-label="Close"] {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) button[aria-label="Close"] {
             background: #FFFFFF !important;
             border: 1px solid #A7DCA7 !important;
             color: #1F2937 !important;
         }
         div[role="dialog"] button[data-testid="baseButton-primary"],
-        div[aria-modal="true"] button[data-testid="baseButton-primary"] {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) button[data-testid="baseButton-primary"] {
             background: #1CB51C !important;
             border-color: #1CB51C !important;
             color: #FFFFFF !important;
         }
         div[role="dialog"] button[data-testid="baseButton-primary"] *,
-        div[aria-modal="true"] button[data-testid="baseButton-primary"] * {
+        div[aria-modal="true"]:not([data-baseweb="modal"]) button[data-testid="baseButton-primary"] * {
             color: #FFFFFF !important;
         }
         div[data-testid="stFileUploader"] section {
@@ -523,7 +523,7 @@ def _render_walkthrough() -> None:
             overflow: hidden !important;
         }
         div[role="dialog"],
-        div[aria-modal="true"],
+        div[aria-modal="true"]:not([data-baseweb="modal"]),
         div[data-testid="stDialog"] {
             overflow-y: auto !important;
         }
