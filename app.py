@@ -205,17 +205,13 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
         }
         div[data-baseweb="modal"] {
-            background: transparent !important;
-        }
-        div[data-baseweb="modal"]::before {
-            content: "";
-            position: fixed;
+            position: fixed !important;
             inset: 0;
             background: rgba(31, 41, 55, 0.35) !important;
             backdrop-filter: blur(4px) !important;
             -webkit-backdrop-filter: blur(4px) !important;
-            pointer-events: none;
-            z-index: 0;
+            overflow-y: auto !important;
+            padding: 24px !important;
         }
         div[data-baseweb="modal"] > div,
         div[data-baseweb="modal"] > div > div,
@@ -230,11 +226,17 @@ def _inject_global_styles() -> None:
             border: 1px solid #A7DCA7 !important;
             position: relative;
             z-index: 1;
+            border-radius: 16px !important;
+            box-shadow: 0 24px 80px rgba(31, 41, 55, 0.22) !important;
+            max-height: calc(100vh - 48px) !important;
+            overflow-y: auto !important;
         }
         div[role="dialog"] section,
         div[aria-modal="true"] section {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
+            max-height: calc(100vh - 48px) !important;
+            overflow-y: auto !important;
         }
         div[role="dialog"] *,
         div[aria-modal="true"] * {
