@@ -204,49 +204,47 @@ def _inject_global_styles() -> None:
         div[data-testid="stAlert"] * {
             color: #1F2937 !important;
         }
+        div[data-baseweb="modal"] {
+            background: rgba(31, 41, 55, 0.35) !important;
+            backdrop-filter: blur(4px) !important;
+            -webkit-backdrop-filter: blur(4px) !important;
+        }
         div[role="dialog"],
         div[aria-modal="true"],
-        div[data-baseweb="modal"],
         div[data-testid="stDialog"] {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
             border: 1px solid #A7DCA7 !important;
         }
         div[role="dialog"] section,
-        div[aria-modal="true"] section,
-        div[data-baseweb="modal"] section {
+        div[aria-modal="true"] section {
             background: #F8FFF8 !important;
             color: #1F2937 !important;
         }
         div[role="dialog"] *,
-        div[aria-modal="true"] *,
-        div[data-baseweb="modal"] * {
+        div[aria-modal="true"] * {
             color: #1F2937 !important;
         }
         div[role="dialog"] button,
-        div[aria-modal="true"] button,
-        div[data-baseweb="modal"] button {
+        div[aria-modal="true"] button {
             background: #FFFFFF !important;
             border: 1px solid #86C986 !important;
             color: #1F2937 !important;
         }
         div[role="dialog"] button[aria-label="Close"],
-        div[aria-modal="true"] button[aria-label="Close"],
-        div[data-baseweb="modal"] button[aria-label="Close"] {
+        div[aria-modal="true"] button[aria-label="Close"] {
             background: #FFFFFF !important;
             border: 1px solid #A7DCA7 !important;
             color: #1F2937 !important;
         }
         div[role="dialog"] button[data-testid="baseButton-primary"],
-        div[aria-modal="true"] button[data-testid="baseButton-primary"],
-        div[data-baseweb="modal"] button[data-testid="baseButton-primary"] {
+        div[aria-modal="true"] button[data-testid="baseButton-primary"] {
             background: #1CB51C !important;
             border-color: #1CB51C !important;
             color: #FFFFFF !important;
         }
         div[role="dialog"] button[data-testid="baseButton-primary"] *,
-        div[aria-modal="true"] button[data-testid="baseButton-primary"] *,
-        div[data-baseweb="modal"] button[data-testid="baseButton-primary"] * {
+        div[aria-modal="true"] button[data-testid="baseButton-primary"] * {
             color: #FFFFFF !important;
         }
         div[data-testid="stFileUploader"] section {
@@ -287,20 +285,6 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
             border-color: #A7DCA7 !important;
         }
-        .stMultiSelect div[data-baseweb="select"],
-        .stMultiSelect div[data-baseweb="select"] > div,
-        .stMultiSelect div[data-baseweb="select"] > div > div,
-        .stMultiSelect div[data-baseweb="select"] > div > div > div,
-        .stMultiSelect div[data-baseweb="select"] div[role="combobox"] {
-            overflow: visible !important;
-        }
-        .stMultiSelect div[data-baseweb="select"] > div {
-            padding-left: 0.45rem !important;
-        }
-        .stMultiSelect div[data-baseweb="select"] div:has(> div[data-baseweb="tag"]) {
-            overflow: visible !important;
-            padding-left: 0.35rem !important;
-        }
         div[data-baseweb="select"] span,
         div[data-baseweb="popover"] span,
         div[data-baseweb="menu"] li {
@@ -311,33 +295,15 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
             border: 1px solid #86C986 !important;
             border-radius: 999px !important;
-            padding: 0.18rem 0.5rem 0.18rem 0.72rem !important;
+            padding: 0.18rem 0.42rem !important;
             margin: 0.12rem 0.18rem !important;
             line-height: 1.25rem !important;
             min-height: 1.45rem !important;
-            overflow: visible !important;
-            max-width: none !important;
         }
         div[data-baseweb="tag"] span,
         div[data-baseweb="tag"] div,
         div[data-baseweb="tag"] [title] {
             color: #1F2937 !important;
-            padding-left: 0.16rem !important;
-            padding-right: 0.16rem !important;
-            margin-left: 0 !important;
-            overflow: visible !important;
-            text-overflow: clip !important;
-            white-space: nowrap !important;
-            line-height: 1.25rem !important;
-            max-width: none !important;
-            clip-path: none !important;
-        }
-        div[data-baseweb="select"] div[data-baseweb="tag"] {
-            overflow: visible !important;
-        }
-        .stMultiSelect div[data-baseweb="select"] div[data-baseweb="tag"]:first-child,
-        .stMultiSelect div[data-baseweb="select"] div[data-baseweb="tag"]:first-of-type {
-            margin-left: 0.6rem !important;
         }
         div[data-baseweb="select"] div[data-baseweb="tag"] svg {
             flex-shrink: 0 !important;
@@ -1955,19 +1921,20 @@ def _render_monthly_revenue_section(monthly_revenue: pd.DataFrame | None, notes:
     zones = _sorted_unique(filtered, "Zone")
 
     col1, col2, col3, col4 = st.columns(4)
-    selected_devices = col1.multiselect("Devices", devices, default=devices, key="monthly_devices") if devices else []
-    selected_categories = (
-        col2.multiselect("Categories", categories, default=categories, key="monthly_categories") if categories else []
-    )
-    selected_zones = col3.multiselect("Zones", zones, default=zones, key="monthly_zones") if zones else []
+    with col1:
+        selected_devices = _render_checkbox_filter("Devices", devices, "monthly_devices")
+    with col2:
+        selected_categories = _render_checkbox_filter("Categories", categories, "monthly_categories")
+    with col3:
+        selected_zones = _render_checkbox_filter("Zones", zones, "monthly_zones")
     group_options = ["Revenue_Category", "Device"] + (["Zone"] if zones else [])
     group_by = col4.selectbox("Group monthly chart by", group_options, key="monthly_group_by")
 
-    if selected_devices:
+    if devices:
         filtered = filtered.loc[filtered["Device"].astype(str).isin(selected_devices)]
-    if selected_categories:
+    if categories:
         filtered = filtered.loc[filtered["Revenue_Category"].astype(str).isin(selected_categories)]
-    if selected_zones and "Zone" in filtered.columns:
+    if zones and "Zone" in filtered.columns:
         filtered = filtered.loc[filtered["Zone"].astype(str).isin(selected_zones)]
 
     if filtered.empty:
@@ -1988,6 +1955,63 @@ def _render_monthly_revenue_section(monthly_revenue: pd.DataFrame | None, notes:
 
     with st.expander("Monthly revenue long-format data"):
         st.markdown(_light_table_html(_display_monthly_columns(filtered).head(500)), unsafe_allow_html=True)
+
+
+def _render_checkbox_filter(label: str, options: list[str], key_prefix: str) -> list[str]:
+    if not options:
+        st.caption(f"{label}: no values available")
+        return []
+
+    selected_key = f"{key_prefix}_selected"
+    options_key = f"{key_prefix}_options"
+    option_signature = tuple(options)
+    if st.session_state.get(options_key) != option_signature:
+        previous_selected = st.session_state.get(selected_key)
+        selected = options.copy() if previous_selected is None else [option for option in options if option in previous_selected]
+        st.session_state[options_key] = option_signature
+        st.session_state[selected_key] = selected
+        for index, option in enumerate(options):
+            st.session_state[_checkbox_option_key(key_prefix, index, option)] = option in selected
+
+    current_selected = st.session_state.get(selected_key, options.copy())
+    selected = [
+        option
+        for index, option in enumerate(options)
+        if bool(st.session_state.get(_checkbox_option_key(key_prefix, index, option), option in current_selected))
+    ]
+    st.session_state[selected_key] = selected
+
+    with st.expander(f"{label} ({len(selected)} selected)", expanded=False):
+        st.caption(f"{len(selected)} of {len(options)} selected")
+        action_col1, action_col2 = st.columns(2)
+        if action_col1.button("Select all", key=f"{key_prefix}_select_all", use_container_width=True):
+            _set_checkbox_filter_selection(key_prefix, options, selected=True)
+            st.rerun()
+        if action_col2.button("Clear all", key=f"{key_prefix}_clear_all", use_container_width=True):
+            _set_checkbox_filter_selection(key_prefix, options, selected=False)
+            st.rerun()
+
+        checkbox_columns = st.columns(2 if len(options) > 4 else 1)
+        selected = []
+        for index, option in enumerate(options):
+            checkbox_key = _checkbox_option_key(key_prefix, index, option)
+            if checkbox_columns[index % len(checkbox_columns)].checkbox(str(option), key=checkbox_key):
+                selected.append(option)
+        st.session_state[selected_key] = selected
+
+    st.caption(f"{len(selected)} {label.lower()} selected")
+    return selected
+
+
+def _set_checkbox_filter_selection(key_prefix: str, options: list[str], *, selected: bool) -> None:
+    st.session_state[f"{key_prefix}_selected"] = options.copy() if selected else []
+    for index, option in enumerate(options):
+        st.session_state[_checkbox_option_key(key_prefix, index, option)] = selected
+
+
+def _checkbox_option_key(key_prefix: str, index: int, option: str) -> str:
+    safe_option = "".join(character if character.isalnum() else "_" for character in str(option).lower()).strip("_")
+    return f"{key_prefix}_option_{index}_{safe_option}"
 
 
 def _render_report(report: str) -> None:
