@@ -208,9 +208,9 @@ def _inject_global_styles() -> None:
             position: fixed !important;
             inset: 0;
             z-index: 9999 !important;
-            background: rgba(31, 41, 55, 0.16) !important;
-            backdrop-filter: blur(3px) !important;
-            -webkit-backdrop-filter: blur(3px) !important;
+            background: rgba(31, 41, 55, 0.10) !important;
+            backdrop-filter: blur(2px) !important;
+            -webkit-backdrop-filter: blur(2px) !important;
             display: flex !important;
             align-items: flex-start !important;
             justify-content: center !important;
@@ -253,6 +253,7 @@ def _inject_global_styles() -> None:
             overflow-y: auto !important;
             padding: 28px 32px !important;
             box-sizing: border-box !important;
+            display: block !important;
         }
         div[role="dialog"] section,
         div[aria-modal="true"] section {
@@ -260,6 +261,29 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
             max-height: calc(100vh - 96px) !important;
             overflow-y: auto !important;
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+        }
+        div[role="dialog"] h1,
+        div[role="dialog"] h2,
+        div[role="dialog"] h3,
+        div[role="dialog"] h4,
+        div[role="dialog"] p,
+        div[aria-modal="true"] h1,
+        div[aria-modal="true"] h2,
+        div[aria-modal="true"] h3,
+        div[aria-modal="true"] h4,
+        div[aria-modal="true"] p,
+        div[role="dialog"] [data-testid="stMarkdownContainer"],
+        div[aria-modal="true"] [data-testid="stMarkdownContainer"] {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            white-space: normal !important;
+            box-sizing: border-box !important;
         }
         div[role="dialog"] *,
         div[aria-modal="true"] * {
