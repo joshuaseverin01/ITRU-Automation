@@ -205,9 +205,22 @@ def _inject_global_styles() -> None:
             color: #1F2937 !important;
         }
         div[data-baseweb="modal"] {
+            background: transparent !important;
+        }
+        div[data-baseweb="modal"]::before {
+            content: "";
+            position: fixed;
+            inset: 0;
             background: rgba(31, 41, 55, 0.35) !important;
             backdrop-filter: blur(4px) !important;
             -webkit-backdrop-filter: blur(4px) !important;
+            pointer-events: none;
+            z-index: 0;
+        }
+        div[data-baseweb="modal"] > div,
+        div[data-baseweb="modal"] > div > div,
+        div[data-baseweb="modal"] div[role="presentation"] {
+            background: transparent !important;
         }
         div[role="dialog"],
         div[aria-modal="true"],
@@ -215,6 +228,8 @@ def _inject_global_styles() -> None:
             background: #F8FFF8 !important;
             color: #1F2937 !important;
             border: 1px solid #A7DCA7 !important;
+            position: relative;
+            z-index: 1;
         }
         div[role="dialog"] section,
         div[aria-modal="true"] section {
