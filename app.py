@@ -2121,29 +2121,47 @@ def _render_blog_post_creator(
         st.info("Run analysis first to generate a blog draft.")
         return
 
-    title_options = [
-        "Location is everything",
-        "Best zones are not where you think",
-        "Value stack / money left on the table",
-        "Market timing and volatility",
-        "Custom",
+    blog_style_options = [
+        "Investor-ready language",
+        "Marketing language",
+        "Technical language",
+        "Executive strategy language",
+        "Product/partner language",
     ]
-    audience_options = ["Utilities", "VPP operators", "Battery developers", "Asset owners", "General energy audience"]
-    market_options = ["PJM", "ERCOT", "CAISO", "General ISO/RTO"]
-    default_market = _default_blog_market_context(analyzed_data, selected_isos or [])
+    title_style_options = [
+        "Investor-targeted title",
+        "Marketing title",
+        "Technical title",
+        "Executive strategy title",
+        "Product/partner title",
+        "Custom title",
+    ]
+    audience_options = ["Utilities", "VPP operators", "Battery developers", "Asset owners", "Investors", "Partners", "General energy audience"]
+    market_context = _default_blog_market_context(analyzed_data, selected_isos or [])
+    if st.session_state.get("blog_title_style") not in title_style_options:
+        st.session_state["blog_title_style"] = "Executive strategy title"
+    if st.session_state.get("blog_style") not in blog_style_options:
+        st.session_state["blog_style"] = "Executive strategy language"
+    if st.session_state.get("blog_audience") not in audience_options:
+        st.session_state["blog_audience"] = "General energy audience"
 
     control_col1, control_col2, control_col3 = st.columns(3)
-    title_style = control_col1.selectbox("Blog angle / title style", title_options, key="blog_title_style")
-    audience = control_col2.selectbox("Audience", audience_options, key="blog_audience")
-    market_context = control_col3.selectbox(
-        "Market context",
-        market_options,
-        index=market_options.index(default_market) if default_market in market_options else len(market_options) - 1,
-        key="blog_market_context",
+    blog_style = control_col1.selectbox(
+        "Blog style",
+        blog_style_options,
+        index=blog_style_options.index("Executive strategy language"),
+        key="blog_style",
     )
+    title_style = control_col2.selectbox(
+        "Title style",
+        title_style_options,
+        index=title_style_options.index("Executive strategy title"),
+        key="blog_title_style",
+    )
+    audience = control_col3.selectbox("Audience", audience_options, key="blog_audience")
 
     custom_title = None
-    if title_style == "Custom":
+    if title_style == "Custom title":
         custom_title = st.text_input("Custom blog title", key="blog_custom_title")
 
     cta_col1, cta_col2 = st.columns(2)
@@ -2168,6 +2186,7 @@ def _render_blog_post_creator(
         st.error("The active dataset does not contain a supported numeric metric for blog generation.")
         return
     start_date, end_date = _blog_time_window(monthly_revenue)
+    st.caption(f"Market context inferred from active data: {market_context}")
     st.caption(f"Draft metric: {metric_column.replace('_', ' ')}")
 
     if st.button("Generate blog draft", type="primary", key="generate_blog_draft"):
@@ -2179,6 +2198,7 @@ def _render_blog_post_creator(
             start_date=start_date,
             end_date=end_date,
             audience=audience,
+            blog_style=blog_style,
             title_style=title_style,
             custom_title=custom_title,
             cta_text=cta_text,
@@ -2209,7 +2229,7 @@ def _default_blog_market_context(dataframe: pd.DataFrame, selected_isos: list[st
         for iso in ["PJM", "ERCOT", "CAISO"]:
             if iso in available:
                 return iso
-    return "General ISO/RTO"
+    return "the selected energy market"
 
 
 def _default_blog_metric(dataframe: pd.DataFrame) -> str | None:

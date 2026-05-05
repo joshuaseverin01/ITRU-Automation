@@ -157,12 +157,13 @@ class ReportingExportTests(unittest.TestCase):
             start_date="2024-01",
             end_date="2024-03",
             audience="Battery developers",
-            title_style="Location is everything",
+            blog_style="Executive strategy language",
+            title_style="Executive strategy title",
             cta_text="Book a Flexworks walkthrough.",
             cta_link="https://example.com/demo",
         )
 
-        self.assertTrue(draft.startswith("# Location Is Everything"))
+        self.assertTrue(draft.startswith("# What PJM Revenue Variation Means for DER Planning"))
         self.assertIn("## Simulation setup", draft)
         self.assertIn("## Results", draft)
         self.assertIn("## What the revenue data shows", draft)
@@ -172,6 +173,74 @@ class ReportingExportTests(unittest.TestCase):
         self.assertIn("JCPL", draft)
         self.assertIn("Percent spread: 275%", draft)
         self.assertIn("[Book a Flexworks walkthrough.](https://example.com/demo)", draft)
+
+    def test_blog_post_draft_generates_automatic_titles_by_style(self) -> None:
+        expected_fragments = {
+            "Investor-targeted title": "Battery Arbitrage Value Concentrates",
+            "Marketing title": "Why Battery Revenue Depends",
+            "Technical title": "A Zone-Level Analysis",
+            "Executive strategy title": "Revenue Variation Means for DER Planning",
+            "Product/partner title": "Using Flexworks to Identify",
+        }
+        for title_style, expected_fragment in expected_fragments.items():
+            with self.subTest(title_style=title_style):
+                draft = build_blog_post_draft(_zone_data(), iso="PJM", metric="Selected_Metric", title_style=title_style)
+                first_line = draft.splitlines()[0]
+                self.assertIn(expected_fragment, first_line)
+
+    def test_blog_post_draft_custom_title_overrides_generated_title(self) -> None:
+        draft = build_blog_post_draft(
+            _zone_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            title_style="Custom title",
+            custom_title="My custom Flexworks title",
+        )
+
+        self.assertTrue(draft.startswith("# My custom Flexworks title"))
+
+    def test_blog_post_draft_blank_custom_title_falls_back_to_generated_title(self) -> None:
+        draft = build_blog_post_draft(
+            _zone_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            title_style="Custom title",
+            custom_title=" ",
+        )
+
+        self.assertTrue(draft.startswith("# What Flexworks Shows About"))
+
+    def test_blog_style_influences_body_framing(self) -> None:
+        investor_draft = build_blog_post_draft(
+            _zone_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            blog_style="Investor-ready language",
+        )
+        technical_draft = build_blog_post_draft(
+            _zone_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            blog_style="Technical language",
+        )
+
+        self.assertIn("capital allocation", investor_draft)
+        self.assertIn("traceability", technical_draft)
+
+    def test_blog_post_draft_handles_investors_and_partners_audiences(self) -> None:
+        investor_draft = build_blog_post_draft(_zone_data(), iso="PJM", metric="Selected_Metric", audience="Investors")
+        partner_draft = build_blog_post_draft(_zone_data(), iso="PJM", metric="Selected_Metric", audience="Partners")
+
+        self.assertIn("## Takeaways for Investors", investor_draft)
+        self.assertIn("portfolio construction", investor_draft)
+        self.assertIn("## Takeaways for Partners", partner_draft)
+        self.assertIn("customer conversations", partner_draft)
+
+    def test_blog_post_draft_missing_iso_uses_generic_market_title(self) -> None:
+        draft = build_blog_post_draft(_zone_data(), metric="Selected_Metric", title_style="Marketing title")
+
+        self.assertIn("the selected energy market", draft.splitlines()[0])
+        self.assertIn("ISO/RTO: the selected energy market", draft)
 
     def test_blog_post_draft_handles_empty_dataframe_gracefully(self) -> None:
         draft = build_blog_post_draft(pd.DataFrame(), iso="PJM", metric="Revenue_per_kW")

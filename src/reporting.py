@@ -192,7 +192,8 @@ def build_blog_post_draft(
     start_date: object | None = None,
     end_date: object | None = None,
     audience: str = "General energy audience",
-    title_style: str = "Location is everything",
+    blog_style: str = "Executive strategy language",
+    title_style: str = "Executive strategy title",
     custom_title: str | None = None,
     cta_text: str | None = None,
     cta_link: str | None = None,
@@ -201,12 +202,21 @@ def build_blog_post_draft(
 ) -> str:
     """Build a deterministic blog-style Markdown draft from processed market results."""
 
-    selected_iso = (iso or _infer_iso(zone_df) or "General ISO/RTO").strip()
+    selected_iso = (iso or _infer_iso(zone_df) or "the selected energy market").strip()
     metric_column, metric_label = _resolve_blog_metric(zone_df, metric)
-    title = _blog_title(selected_iso, title_style, custom_title)
     selected_period = _format_period(start_date, end_date, monthly_df)
 
     if zone_df is None or zone_df.empty:
+        title = _blog_title(
+            selected_iso,
+            metric_label,
+            title_style,
+            custom_title,
+            spread=None,
+            percent_spread=None,
+            top_zones=[],
+            bottom_zones=[],
+        )
         return "\n\n".join(
             [
                 f"# {title}",
@@ -216,6 +226,16 @@ def build_blog_post_draft(
         ) + "\n"
 
     if metric_column is None:
+        title = _blog_title(
+            selected_iso,
+            metric_label,
+            title_style,
+            custom_title,
+            spread=None,
+            percent_spread=None,
+            top_zones=[],
+            bottom_zones=[],
+        )
         return "\n\n".join(
             [
                 f"# {title}",
@@ -226,6 +246,16 @@ def build_blog_post_draft(
 
     ranked = _rank_blog_zones(zone_df, metric_column)
     if ranked.empty:
+        title = _blog_title(
+            selected_iso,
+            metric_label,
+            title_style,
+            custom_title,
+            spread=None,
+            percent_spread=None,
+            top_zones=[],
+            bottom_zones=[],
+        )
         return "\n\n".join(
             [
                 f"# {title}",
@@ -241,6 +271,18 @@ def build_blog_post_draft(
     spread = top_value - bottom_value
     percent_spread = spread / bottom_value if bottom_value > 0 else None
     zone_count = int(ranked["Zone"].nunique())
+    top_zone_names_list = top_rows["Zone"].astype(str).tolist()
+    bottom_zone_names_list = bottom_rows["Zone"].astype(str).tolist()
+    title = _blog_title(
+        selected_iso,
+        metric_label,
+        title_style,
+        custom_title,
+        spread=spread,
+        percent_spread=percent_spread,
+        top_zones=top_zone_names_list,
+        bottom_zones=bottom_zone_names_list,
+    )
 
     context_lines = []
     if additional_context and additional_context.strip():
@@ -249,11 +291,12 @@ def build_blog_post_draft(
         context_lines.append("Review note: confirm final asset specifications and market assumptions before publication.")
     monthly_context = _blog_monthly_context(monthly_df)
     audience_guidance = _audience_takeaways(audience)
-    top_zone_names = _join_items(top_rows["Zone"].astype(str).tolist())
-    bottom_zone_names = _join_items(bottom_rows["Zone"].astype(str).tolist())
+    top_zone_names = _join_items(top_zone_names_list)
+    bottom_zone_names = _join_items(bottom_zone_names_list)
+    style_framing = _blog_style_framing(blog_style, selected_iso)
 
     opening = [
-        f"What does a battery arbitrage simulation actually tell us about where market value is concentrating in {selected_iso}?",
+        style_framing["opening"],
         (
             f"The latest Flexworks run points to a practical answer: the spread between zones matters. "
             f"Across {zone_count} analyzed zone(s), the leading locations were {top_zone_names}, while the lowest-performing group included {bottom_zone_names}."
@@ -271,6 +314,7 @@ def build_blog_post_draft(
         f"- ISO/RTO: {selected_iso}",
         f"- Time window: {selected_period}",
         f"- Selected metric: {metric_label}",
+        f"- Blog style: {blog_style}",
         f"- Zones analyzed: {zone_count}",
         f"- Measurement focus: {_metric_measurement_note(metric_label)}",
     ]
@@ -299,6 +343,7 @@ def build_blog_post_draft(
             "This does not prove that one zone will always outperform another, but it does indicate where deeper diligence may be most useful. "
             "For arbitrage strategies, the next question is whether the advantage is persistent, tied to a few periods, or dependent on additional revenue streams."
         ),
+        style_framing["interpretation"],
     ]
 
     timing_lines = [_blog_timing_section(monthly_context)]
@@ -313,8 +358,7 @@ def build_blog_post_draft(
         "## Timing the market\n\n" + "\n\n".join(timing_lines),
         f"## Takeaways for {audience}\n\n" + "\n".join(f"- {item}" for item in audience_guidance),
         "## The power of Flexworks\n\n"
-        "Running this manually is tedious and error-prone. Analysts have to collect exports, clean revenue fields, reshape time-series data, compare dispatch results, join devices to zones, and rebuild charts before the strategic questions can even start.\n\n"
-        "Flexworks compresses that workflow into a repeatable process. The value is not only showing which zone is highest. It helps teams understand where market value concentrates, how stable it appears over time, and where additional revenue streams may be needed.",
+        + style_framing["flexworks"],
         "## Next steps\n\n" + cta,
     ]
     return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
@@ -442,16 +486,93 @@ def _infer_iso(dataframe: pd.DataFrame | None) -> str | None:
     return values[0] if values else None
 
 
-def _blog_title(selected_iso: str, title_style: str, custom_title: str | None) -> str:
-    if title_style == "Custom" and custom_title and custom_title.strip():
+def _blog_title(
+    selected_iso: str,
+    metric_label: str,
+    title_style: str,
+    custom_title: str | None,
+    *,
+    spread: float | None,
+    percent_spread: float | None,
+    top_zones: Sequence[str],
+    bottom_zones: Sequence[str],
+) -> str:
+    if title_style in {"Custom title", "Custom"} and custom_title and custom_title.strip():
         return custom_title.strip()
+
+    market = selected_iso or "the selected energy market"
+    top_zone = top_zones[0] if top_zones else None
+    spread_phrase = "Location-Driven" if spread is not None and spread > 0 else "Zone-Level"
+    if percent_spread is not None and percent_spread >= 0.25:
+        spread_phrase = "High-Spread"
+
     titles = {
-        "Location is everything": f"Location Is Everything: What {selected_iso} Battery Revenue Results Suggest",
-        "Best zones are not where you think": f"The Best Battery Zones in {selected_iso} May Not Be the Obvious Ones",
-        "Value stack / money left on the table": f"Where the Battery Value Stack Leaves Money on the Table in {selected_iso}",
-        "Market timing and volatility": f"Market Timing, Volatility, and Battery Revenue in {selected_iso}",
+        "Investor-targeted title": (
+            f"What {market} Battery Revenue Reveals About {spread_phrase} Market Opportunity"
+            if top_zone is None
+            else f"Where Battery Arbitrage Value Concentrates Across {market} Zones"
+        ),
+        "Marketing title": (
+            f"What Flexworks Reveals About Battery Value Across {market}"
+            if top_zone is None
+            else f"Why Battery Revenue Depends on Where You Deploy in {market}"
+        ),
+        "Technical title": f"A Zone-Level Analysis of {metric_label} Across {market}",
+        "Executive strategy title": (
+            f"Using Zone-Level Revenue Modeling to Guide Battery Deployment Strategy"
+            if market == "the selected energy market"
+            else f"What {market} Revenue Variation Means for DER Planning"
+        ),
+        "Product/partner title": (
+            f"How Flexworks Turns Battery Simulations Into Market Intelligence"
+            if top_zone is None
+            else f"Using Flexworks to Identify High-Value Battery Deployment Zones in {market}"
+        ),
     }
-    return titles.get(title_style, f"What Flexworks Shows About Battery Revenue in {selected_iso}")
+    return titles.get(title_style, f"What Flexworks Shows About {metric_label} in {market}")
+
+
+def _blog_style_framing(blog_style: str, selected_iso: str) -> dict[str, str]:
+    market = selected_iso or "the selected energy market"
+    common_power = (
+        "Running this manually is tedious and error-prone. Analysts have to collect exports, clean revenue fields, reshape time-series data, "
+        "compare dispatch results, join devices to zones, and rebuild charts before the strategic questions can even start.\n\n"
+        "Flexworks compresses that workflow into a repeatable process. The value is not only showing which zone is highest. "
+        "It helps teams understand where market value concentrates, how stable it appears over time, and where additional revenue streams may be needed."
+    )
+    framing = {
+        "Investor-ready language": {
+            "opening": f"Where does battery revenue concentrate, and what does that imply for scalable market opportunity in {market}?",
+            "interpretation": "For investors, this framing turns a simulation result into a diligence question: where is the revenue pool deep enough, repeatable enough, and differentiated enough to support deployment at scale?",
+            "flexworks": common_power
+            + "\n\nFor investment teams, that means faster screening, clearer downside questions, and a more structured path from modeled revenue to capital allocation decisions.",
+        },
+        "Marketing language": {
+            "opening": f"Battery revenue is not just about the market you enter. It is also about where you deploy within {market}.",
+            "interpretation": "For a public-facing audience, the key message is simple: zone-level modeling makes the economics visible before teams commit to a location strategy.",
+            "flexworks": common_power
+            + "\n\nFor customers, the practical benefit is clarity: Flexworks turns dense simulation outputs into a story teams can inspect, share, and act on.",
+        },
+        "Technical language": {
+            "opening": f"What does a zone-level review of modeled battery arbitrage revenue show across {market}?",
+            "interpretation": "Technically, these results should be treated as a screening layer. They indicate where the modeled metric differs by zone, while final conclusions should still be tested against dispatch assumptions and market rules.",
+            "flexworks": common_power
+            + "\n\nFor technical teams, the advantage is traceability: the workflow keeps the path from raw export to zone ranking, map, and narrative reviewable.",
+        },
+        "Executive strategy language": {
+            "opening": f"How should teams use zone-level battery revenue modeling to guide deployment strategy in {market}?",
+            "interpretation": "For executives, the point is not to chase the highest number blindly. It is to allocate diligence, partnership effort, and risk review toward the locations where modeled value appears most defensible.",
+            "flexworks": common_power
+            + "\n\nFor strategy teams, Flexworks helps connect market modeling to resource allocation, planning conversations, and customer-ready evidence.",
+        },
+        "Product/partner language": {
+            "opening": f"How can partners turn battery simulation outputs into a market narrative that customers can use in {market}?",
+            "interpretation": "For product and partner conversations, the results show how a technical simulation can become a practical market-intelligence workflow.",
+            "flexworks": common_power
+            + "\n\nFor partners, the workflow supports customer conversations by connecting simulation inputs, zone-level outputs, visual evidence, and next-step recommendations.",
+        },
+    }
+    return framing.get(blog_style, framing["Executive strategy language"])
 
 
 def _format_period(start_date: object | None, end_date: object | None, monthly_df: pd.DataFrame | None) -> str:
@@ -603,6 +724,16 @@ def _audience_takeaways(audience: str) -> list[str]:
             "Use the results to test payback risk and understand where arbitrage-only returns may be thin.",
             "Consider whether value stacking is needed in zones with weaker modeled revenue.",
             "Track whether revenue depends on a few months, which can affect operating and financing assumptions.",
+        ],
+        "Investors": [
+            "Use zone-level spread to identify where market opportunity may be concentrated before deeper diligence.",
+            "Compare revenue concentration against scalability, downside risk, and portfolio construction assumptions.",
+            "Treat persistent zone leadership as a diligence signal, not a final investment conclusion.",
+        ],
+        "Partners": [
+            "Use the analysis to frame customer conversations around where flexibility creates measurable market value.",
+            "Pair zone-level results with partner-specific deployment, integration, or program-design capabilities.",
+            "Use Flexworks outputs as a shared evidence base for deciding which opportunities deserve follow-up modeling.",
         ],
         "General energy audience": [
             "Zone-level modeling matters because batteries earn revenue from local market conditions, not only broad ISO averages.",
