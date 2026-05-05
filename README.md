@@ -127,6 +127,28 @@ streamlit run app.py
 
 The app runs locally and does not require a database, authentication, deployment service, or external API.
 
+## Demo Mode Deployment
+
+For a locked public demo that only uses bundled sample files:
+
+```bash
+APP_MODE=demo streamlit run app.py
+```
+
+On Streamlit Cloud or another hosted environment, set an environment variable or secret:
+
+```toml
+APP_MODE = "demo"
+```
+
+The public demo deployment should set `APP_MODE=demo`. In demo mode, upload controls are hidden and users can only load the bundled files from `demo_data/`, run the analysis, explore the dashboard, and download generated demo outputs.
+
+For the full internal version, run normally without `APP_MODE=demo`:
+
+```bash
+streamlit run app.py
+```
+
 ## How to Run Tests
 
 ```bash

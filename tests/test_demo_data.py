@@ -8,6 +8,7 @@ import unittest
 from src.data_loader import load_csv
 from src.geo import load_pjm_zone_geojson
 from src.ingestion import ExportSchema, parse_flexworks_export
+from app import DEMO_DATA_DIR, DEMO_FILE_PATHS, is_demo_mode
 
 
 DEMO_DIR = Path("demo_data")
@@ -17,11 +18,30 @@ DEMO_ZONES_GEOJSON = DEMO_DIR / "zones.geojson"
 
 
 class DemoDataTests(unittest.TestCase):
+    def test_demo_mode_enabled_by_app_mode(self) -> None:
+        self.assertTrue(is_demo_mode(environ={"APP_MODE": "demo"}, secrets={}))
+
+    def test_demo_mode_enabled_by_demo_mode_flag(self) -> None:
+        self.assertTrue(is_demo_mode(environ={"DEMO_MODE": "true"}, secrets={}))
+
+    def test_demo_mode_enabled_by_streamlit_secret_style_mapping(self) -> None:
+        self.assertTrue(is_demo_mode(environ={}, secrets={"APP_MODE": "demo"}))
+
+    def test_demo_mode_disabled_by_default(self) -> None:
+        self.assertFalse(is_demo_mode(environ={}, secrets={}))
+
     def test_demo_files_exist_at_relative_paths(self) -> None:
         for path in (DEMO_FLEXWORKS_EXPORT, DEMO_DEVICE_MAPPING, DEMO_ZONES_GEOJSON):
             with self.subTest(path=str(path)):
                 self.assertFalse(path.is_absolute())
                 self.assertTrue(path.exists(), f"Missing bundled demo file: {path}")
+
+    def test_app_demo_file_constants_resolve_under_demo_data(self) -> None:
+        for path in DEMO_FILE_PATHS:
+            with self.subTest(path=str(path)):
+                self.assertEqual(path.parent, DEMO_DATA_DIR)
+                self.assertEqual(path.parent.name, "demo_data")
+                self.assertTrue(path.exists())
 
     def test_demo_files_load_without_absolute_paths(self) -> None:
         monthly = parse_flexworks_export(load_csv(DEMO_FLEXWORKS_EXPORT))
@@ -37,4 +57,3 @@ class DemoDataTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

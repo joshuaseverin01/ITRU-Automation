@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -96,6 +97,46 @@ WALKTHROUGH_STATE_KEY = "show_walkthrough"
 ISO_TIME_VIEW_MODE_KEY = "iso_time_view_mode"
 ISO_METRIC_KEY = "iso_snapshot_metric"
 ISO_PREVIOUS_TIME_VIEW_MODE_KEY = "iso_previous_time_view_mode"
+
+
+def is_demo_mode(
+    environ: Mapping[str, str] | None = None,
+    secrets: Mapping[str, object] | None = None,
+) -> bool:
+    """Return True when the app is locked to bundled public demo inputs."""
+
+    env = os.environ if environ is None else environ
+    app_mode = _configured_value("APP_MODE", env, secrets)
+    demo_mode = _configured_value("DEMO_MODE", env, secrets)
+    return str(app_mode or "").strip().lower() == "demo" or str(demo_mode or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "demo",
+    }
+
+
+def _configured_value(
+    key: str,
+    environ: Mapping[str, str],
+    secrets: Mapping[str, object] | None,
+) -> object | None:
+    env_value = environ.get(key)
+    if env_value not in (None, ""):
+        return env_value
+    if secrets is None:
+        try:
+            secrets = st.secrets
+        except Exception:
+            return None
+    try:
+        return secrets.get(key)
+    except Exception:
+        try:
+            return secrets[key]
+        except Exception:
+            return None
 
 
 def main() -> None:
@@ -426,7 +467,17 @@ def _render_header() -> None:
         _reopen_walkthrough(st.session_state)
 
 
-def _render_empty_state(has_demo_data: bool) -> None:
+def _render_empty_state(has_demo_data: bool, *, demo_mode: bool = False) -> None:
+    if demo_mode:
+        if has_demo_data:
+            st.info(
+                "Load the bundled demo files from the sidebar and click Run Analysis to explore the sample "
+                "Flexworks market intelligence workflow."
+            )
+        else:
+            st.warning("Demo files are missing. Please check the demo_data folder.")
+        return
+
     st.info(
         "Upload a Flexworks export and click Run Analysis to generate market intelligence outputs. "
         "Upload a Flexworks simulation export and, for time-series views, a device-to-zone mapping file. "
@@ -497,7 +548,7 @@ def _apply_animation_metric_default(
     session_state[previous_mode_key] = current_mode
 
 
-def _render_walkthrough() -> None:
+def _render_walkthrough(demo_mode: bool = False) -> None:
     if not _ensure_walkthrough_state(st.session_state):
         return
 
@@ -521,22 +572,19 @@ def _render_walkthrough() -> None:
     )
 
     if callable(getattr(st, "dialog", None)):
-        _render_walkthrough_dialog()
+        _render_walkthrough_dialog(demo_mode)
         return
 
-    _render_walkthrough_card()
+    _render_walkthrough_card(demo_mode)
 
 
-def _render_walkthrough_dialog() -> None:
+def _render_walkthrough_dialog(demo_mode: bool = False) -> None:
     dialog = getattr(st, "dialog")
 
     @dialog("Welcome to the Flexworks Arbitrage Intelligence Dashboard")
     def walkthrough_dialog() -> None:
-        st.write(
-            "This dashboard turns Flexworks battery arbitrage simulations into zone-level market intelligence, "
-            "combining revenue benchmarking, PJM geospatial maps, temporal animation, and exportable strategy outputs."
-        )
-        st.markdown(_walkthrough_markdown())
+        st.write(_walkthrough_intro(demo_mode))
+        st.markdown(_walkthrough_markdown(demo_mode))
         if st.button(
             "Got it",
             type="primary",
@@ -547,7 +595,7 @@ def _render_walkthrough_dialog() -> None:
     walkthrough_dialog()
 
 
-def _render_walkthrough_card() -> None:
+def _render_walkthrough_card(demo_mode: bool = False) -> None:
     st.markdown(
         f"""
         <div style="
@@ -563,10 +611,9 @@ def _render_walkthrough_card() -> None:
                 Welcome to the Flexworks Arbitrage Intelligence Dashboard
             </h3>
             <p style="margin: 0 0 0.7rem 0; color: #1f2937;">
-                This dashboard turns Flexworks battery arbitrage simulations into zone-level market intelligence,
-                combining revenue benchmarking, PJM geospatial maps, temporal animation, and exportable strategy outputs.
+                {_walkthrough_intro(demo_mode)}
             </p>
-            {_walkthrough_html_sections()}
+            {_walkthrough_html_sections(demo_mode)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -579,7 +626,32 @@ def _render_walkthrough_card() -> None:
         _close_walkthrough_and_rerun(st.session_state, st.rerun)
 
 
-def _walkthrough_markdown() -> str:
+def _walkthrough_intro(demo_mode: bool = False) -> str:
+    if demo_mode:
+        return (
+            "This public demo uses bundled PJM sample files to show how Flexworks battery arbitrage simulations "
+            "become zone-level market intelligence, temporal visuals, strategy exports, and blog draft outputs."
+        )
+    return (
+        "This dashboard turns Flexworks battery arbitrage simulations into zone-level market intelligence, "
+        "combining revenue benchmarking, PJM geospatial maps, temporal animation, and exportable strategy outputs."
+    )
+
+
+def _walkthrough_markdown(demo_mode: bool = False) -> str:
+    if demo_mode:
+        return "\n\n".join(
+            [
+                "### 1. Start the public demo\n"
+                "Open the sidebar, click **Load Demo Files**, then click **Run Analysis**. "
+                "This public demo uses bundled PJM sample files.",
+                "### 2. Explore the outputs\n"
+                "Review the **Market Intelligence Overview**, **Zonal Market Performance**, animation views, "
+                "the **Strategy Export Center**, and the **Blog Post Creator**.",
+                "### 3. Export demo results\n"
+                "Download PNGs, animated GIFs, processed CSVs, executive summaries, and blog draft Markdown generated from the bundled sample data.",
+            ]
+        )
     return "\n\n".join(
         [
             "### 1. Start with demo files\n"
@@ -598,25 +670,41 @@ def _walkthrough_markdown() -> str:
     )
 
 
-def _walkthrough_html_sections() -> str:
-    sections = [
-        (
-            "1. Start with demo files",
-            "Open the sidebar, expand <strong>Demo files</strong>, click <strong>Load Demo Files</strong>, then click <strong>Run Analysis</strong> to launch a bundled PJM sample workflow.",
-        ),
-        (
-            "2. Upload your own data",
-            "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
-        ),
-        (
-            "3. Explore the analysis",
-            "Use <strong>Snapshot</strong>, <strong>Time range</strong>, <strong>Multi-snapshot</strong>, and <strong>Animation</strong> modes to compare zonal market performance over time.",
-        ),
-        (
-            "4. Export outputs",
-            "Download PNGs, animated GIFs, processed CSVs, ranked outputs, and executive summaries from the <strong>Strategy Export Center</strong>.",
-        ),
-    ]
+def _walkthrough_html_sections(demo_mode: bool = False) -> str:
+    if demo_mode:
+        sections = [
+            (
+                "1. Start the public demo",
+                "Open the sidebar, click <strong>Load Demo Files</strong>, then click <strong>Run Analysis</strong>. This public demo uses bundled PJM sample files.",
+            ),
+            (
+                "2. Explore the outputs",
+                "Review the <strong>Market Intelligence Overview</strong>, <strong>Zonal Market Performance</strong>, animation views, the <strong>Strategy Export Center</strong>, and the <strong>Blog Post Creator</strong>.",
+            ),
+            (
+                "3. Export demo results",
+                "Download PNGs, animated GIFs, processed CSVs, executive summaries, and blog draft Markdown generated from the bundled sample data.",
+            ),
+        ]
+    else:
+        sections = [
+            (
+                "1. Start with demo files",
+                "Open the sidebar, expand <strong>Demo files</strong>, click <strong>Load Demo Files</strong>, then click <strong>Run Analysis</strong> to launch a bundled PJM sample workflow.",
+            ),
+            (
+                "2. Upload your own data",
+                "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
+            ),
+            (
+                "3. Explore the analysis",
+                "Use <strong>Snapshot</strong>, <strong>Time range</strong>, <strong>Multi-snapshot</strong>, and <strong>Animation</strong> modes to compare zonal market performance over time.",
+            ),
+            (
+                "4. Export outputs",
+                "Download PNGs, animated GIFs, processed CSVs, ranked outputs, and executive summaries from the <strong>Strategy Export Center</strong>.",
+            ),
+        ]
     return "".join(
         f"""
         <div style="background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.75rem 0.85rem; margin-top: 0.65rem;">
@@ -630,45 +718,71 @@ def _walkthrough_html_sections() -> str:
 
 def _render_app() -> None:
     state = _analysis_state()
-    if st.sidebar.button("Show walkthrough", use_container_width=True, key="show_walkthrough_button"):
+    demo_mode = is_demo_mode()
+    if not demo_mode and st.sidebar.button("Show walkthrough", use_container_width=True, key="show_walkthrough_button"):
         _reopen_walkthrough(st.session_state)
-    _render_walkthrough()
+    _render_walkthrough(demo_mode)
 
-    uploaded_exports = st.sidebar.file_uploader(
-        "FlexWorks Export CSVs",
-        type=["csv"],
-        accept_multiple_files=True,
-        key="staged_flexworks_exports",
-        help="Upload one or more Flexworks simulation export files containing revenue or market performance data.",
-    )
-    st.sidebar.caption("Upload one or more Flexworks simulation export files containing revenue or market performance data.")
-    uploaded_lookup = st.sidebar.file_uploader(
-        "Device-to-Zone Mapping CSV",
-        type=["csv"],
-        key="staged_coordinate_lookup",
-        help="Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.",
-    )
-    st.sidebar.caption("Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.")
-    uploaded_pjm_geojson = st.sidebar.file_uploader(
-        "Zones GeoJSON",
-        type=["geojson", "json"],
-        key="staged_pjm_geojson",
-        help="Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.",
-    )
-    st.sidebar.caption("Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.")
     demo_files_available = _demo_files_available()
-    with st.sidebar.expander("Demo files", expanded=False):
-        st.caption("Use these bundled PJM sample files to test the dashboard without your own Flexworks export.")
-        demo_clicked = st.button(
-            "Load Demo Files",
-            disabled=not demo_files_available,
-            use_container_width=True,
-            key="load_demo_files",
+    uploaded_exports = None
+    uploaded_lookup = None
+    uploaded_pjm_geojson = None
+    use_local_pjm_geojson = False
+    demo_clicked = False
+
+    if demo_mode:
+        st.sidebar.info("Public demo mode: this version uses bundled PJM sample files to demonstrate the workflow.")
+        st.sidebar.caption("Load the bundled sample files and click Run Analysis to explore the dashboard.")
+        with st.sidebar.expander("Demo files", expanded=True):
+            st.caption("Bundled PJM sample files are used for this public demo.")
+            demo_clicked = st.button(
+                "Load Demo Files",
+                disabled=not demo_files_available,
+                use_container_width=True,
+                key="load_demo_files",
+            )
+            if not demo_files_available:
+                st.warning("Demo files are missing. Please check the demo_data folder.")
+            elif st.session_state.get("demo_files_loaded"):
+                st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
+    else:
+        uploaded_exports = st.sidebar.file_uploader(
+            "FlexWorks Export CSVs",
+            type=["csv"],
+            accept_multiple_files=True,
+            key="staged_flexworks_exports",
+            help="Upload one or more Flexworks simulation export files containing revenue or market performance data.",
         )
-        if not demo_files_available:
-            st.warning("Bundled demo files are missing from demo_data/.")
-        elif st.session_state.get("demo_files_loaded"):
-            st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
+        st.sidebar.caption("Upload one or more Flexworks simulation export files containing revenue or market performance data.")
+        uploaded_lookup = st.sidebar.file_uploader(
+            "Device-to-Zone Mapping CSV",
+            type=["csv"],
+            key="staged_coordinate_lookup",
+            help="Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.",
+        )
+        st.sidebar.caption("Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.")
+        uploaded_pjm_geojson = st.sidebar.file_uploader(
+            "Zones GeoJSON",
+            type=["geojson", "json"],
+            key="staged_pjm_geojson",
+            help="Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.",
+        )
+        st.sidebar.caption("Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.")
+        with st.sidebar.expander("Demo files", expanded=False):
+            st.caption("Use these bundled PJM sample files to test the dashboard without your own Flexworks export.")
+            demo_clicked = st.button(
+                "Load Demo Files",
+                disabled=not demo_files_available,
+                use_container_width=True,
+                key="load_demo_files",
+            )
+            if not demo_files_available:
+                st.warning("Bundled demo files are missing from demo_data/.")
+            elif st.session_state.get("demo_files_loaded"):
+                st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
+        if uploaded_exports:
+            st.session_state["demo_files_loaded"] = False
+
     if demo_clicked:
         demo_progress = st.sidebar.progress(0)
         with st.sidebar.status("Loading bundled demo files...", expanded=True) as status:
@@ -682,18 +796,17 @@ def _render_app() -> None:
         st.session_state["demo_files_notice"] = True
     if st.session_state.pop("demo_files_notice", False):
         st.sidebar.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
-    if uploaded_exports:
-        st.session_state["demo_files_loaded"] = False
     use_demo_files = bool(st.session_state.get("demo_files_loaded")) and demo_files_available
     if use_demo_files:
         st.sidebar.caption("Demo inputs staged: Flexworks monthly export, device-to-zone mapping, and zones GeoJSON.")
 
-    use_local_pjm_geojson = st.sidebar.checkbox(
-        "Use bundled zones GeoJSON",
-        value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None and not use_demo_files,
-        disabled=uploaded_pjm_geojson is not None or use_demo_files or not DEFAULT_PJM_GEOJSON_PATH.exists(),
-        key="staged_use_local_pjm_geojson",
-    )
+    if not demo_mode:
+        use_local_pjm_geojson = st.sidebar.checkbox(
+            "Use bundled zones GeoJSON",
+            value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None and not use_demo_files,
+            disabled=uploaded_pjm_geojson is not None or use_demo_files or not DEFAULT_PJM_GEOJSON_PATH.exists(),
+            key="staged_use_local_pjm_geojson",
+        )
     _stage_uploaded_inputs(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
 
     staged_signature = _staged_input_signature(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
@@ -716,17 +829,23 @@ def _render_app() -> None:
         state = _analysis_state()
 
     if not has_staged_exports:
-        st.sidebar.caption("Upload a Flexworks export or load demo files before running analysis.")
+        if demo_mode:
+            st.sidebar.caption("Load demo files before running analysis.")
+        else:
+            st.sidebar.caption("Upload a Flexworks export or load demo files before running analysis.")
 
-    st.sidebar.divider()
-    st.sidebar.subheader("Scoring Weights")
-    score_weights = _render_weight_controls()
+    if demo_mode:
+        score_weights = DEFAULT_SCORE_WEIGHTS.copy()
+    else:
+        st.sidebar.divider()
+        st.sidebar.subheader("Scoring Weights")
+        score_weights = _render_weight_controls()
 
     if state.get("analysis_error"):
         st.error(f"Analysis failed: {state['analysis_error']}")
 
     if not state.get("analysis_has_run"):
-        _render_empty_state(demo_files_available)
+        _render_empty_state(demo_files_available, demo_mode=demo_mode)
         _render_blog_post_creator(None, None, [])
         return
 
@@ -757,14 +876,18 @@ def _render_app() -> None:
     pjm_geojson = state.get("pjm_geojson")
     monthly_revenue = state.get("monthly_revenue")
     monthly_notes = state.get("monthly_notes") or []
-    if pjm_geojson is not None:
+    if pjm_geojson is not None and not demo_mode:
         st.sidebar.caption(
             f"Active PJM GeoJSON: {pjm_geojson.zone_count} zones using `{pjm_geojson.zone_property}`."
         )
 
     iso_options = _available_iso_regions(cleaned_with_coordinates)
-    selected_isos = st.sidebar.multiselect("ISO filter", iso_options, default=iso_options)
-    top_n = st.sidebar.slider("Top nodes", min_value=5, max_value=50, value=10, step=5)
+    if demo_mode:
+        selected_isos = iso_options
+        top_n = 10
+    else:
+        selected_isos = st.sidebar.multiselect("ISO filter", iso_options, default=iso_options)
+        top_n = st.sidebar.slider("Top nodes", min_value=5, max_value=50, value=10, step=5)
 
     filtered_data = _filter_by_iso(cleaned_with_coordinates, selected_isos)
     if filtered_data.empty:
@@ -926,7 +1049,7 @@ def _run_analysis_workflow(
             if use_demo_files:
                 st.write("Loading bundled demo files...")
                 progress.progress(10)
-            st.write("Reading uploaded files...")
+            st.write("Reading bundled demo files..." if use_demo_files else "Reading uploaded files...")
             parsed_exports = _load_flexworks_exports(
                 uploaded_exports,
                 use_demo_files,
@@ -934,7 +1057,9 @@ def _run_analysis_workflow(
                 stop_on_error=True,
             )
             if not parsed_exports:
-                raise ValueError("No Flexworks exports were loaded. Upload a CSV or enable demo mode, then run analysis.")
+                if use_demo_files:
+                    raise ValueError("Demo files are missing. Please check the demo_data folder.")
+                raise ValueError("No Flexworks exports were loaded. Upload a CSV or load demo files, then run analysis.")
             unsupported_files = [file_name for file_name, parsed in parsed_exports if parsed.schema == ExportSchema.UNKNOWN]
             if unsupported_files:
                 raise ValueError(
