@@ -30,6 +30,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - **Zonal Market Performance:** Lets users explore PJM performance by exact month/timestamp, selected range, multiple snapshots, or animation.
 - **Interactive visual exports:** Saves current Plotly figures as standalone HTML files.
 - **Strategy Export Center:** Downloads processed data and deterministic executive summaries as Markdown or plain text.
+- **Blog Post Creator:** Generates deterministic Markdown blog drafts from processed market results for publication review.
 - **Demo-ready UI:** Includes a first-time walkthrough, polished landing state, usage guidance, bundled sample dataset option, and client-facing section names.
 
 ## Technical Stack
@@ -163,9 +164,14 @@ Users can replace these with their own Flexworks exports, device-to-zone mapping
 - Interactive Plotly HTML visuals
 - Markdown executive summary
 - Plain text executive summary
+- Markdown blog draft
 - Optional PNG export when Plotly image export dependencies, such as Kaleido, are installed in the environment
 
 Kaleido is intentionally not required for the core app. If it is unavailable, HTML export remains supported and the app shows a clear PNG-export warning.
+
+## Blog Post Creator
+
+The Blog Post Creator turns the active processed market results into a deterministic Markdown draft with a simulation setup, ranked zone results, revenue interpretation, audience-specific takeaways, and Flexworks positioning. Drafts should be reviewed before publication for final asset specifications, battery assumptions, market context, and any claims that require external validation.
 
 ## Methodology
 

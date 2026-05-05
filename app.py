@@ -39,6 +39,7 @@ from src.geo import (
 )
 from src.ingestion import ExportSchema, ParsedExport, join_monthly_to_device_summary, parse_flexworks_export
 from src.reporting import (
+    build_blog_post_draft,
     build_executive_summary,
     build_zone_kpi_overview,
     export_dataframe_csv,
@@ -722,15 +723,19 @@ def _render_app() -> None:
     score_weights = _render_weight_controls()
 
     if state.get("analysis_error"):
-        st.error(str(state["analysis_error"]))
+        st.error(f"Analysis failed: {state['analysis_error']}")
 
     if not state.get("analysis_has_run"):
         _render_empty_state(demo_files_available)
+        _render_blog_post_creator(None, None, [])
         return
 
     if staged_signature != state.get("input_signature"):
         st.info("New file uploaded. Click Run Analysis to refresh results.")
         st.sidebar.warning("New file uploaded. Click Run Analysis to refresh results.")
+
+    if st.session_state.pop("analysis_completion_notice", False):
+        st.success("Analysis complete. Scroll down to explore visualizations, exports, and blog draft tools.")
 
     parsed_exports = state.get("parsed_exports") or []
     _render_schema_status(parsed_exports)
@@ -744,6 +749,7 @@ def _render_app() -> None:
         )
         if monthly_data is not None:
             _render_monthly_revenue_section(monthly_data)
+        _render_blog_post_creator(None, monthly_data, selected_isos=[])
         return
 
     cleaned_with_coordinates = state["cleaned_with_coordinates"]
@@ -795,6 +801,7 @@ def _render_app() -> None:
     _render_tables(top_ranked_nodes, iso_summary, high_risk_high_reward)
     _render_report(report)
     _render_cleaning_summary(cleaning_summary)
+    _render_blog_post_creator(analyzed_data, monthly_revenue, selected_isos)
 
 
 def _default_analysis_state() -> dict[str, object]:
@@ -909,6 +916,8 @@ def _run_analysis_workflow(
     input_signature: tuple[object, ...],
 ) -> None:
     st.session_state[ANALYSIS_STATE_KEY] = _default_analysis_state()
+    st.session_state.pop("blog_post_draft_markdown", None)
+    st.session_state.pop("blog_post_draft_filename", None)
     progress = st.progress(0)
 
     try:
@@ -917,7 +926,7 @@ def _run_analysis_workflow(
             if use_demo_files:
                 st.write("Loading bundled demo files...")
                 progress.progress(10)
-            st.write("Reading Flexworks export...")
+            st.write("Reading uploaded files...")
             parsed_exports = _load_flexworks_exports(
                 uploaded_exports,
                 use_demo_files,
@@ -958,12 +967,15 @@ def _run_analysis_workflow(
 
             st.write("Mapping devices to zones...")
             pjm_geojson = _load_pjm_geojson(uploaded_pjm_geojson, use_local_pjm_geojson, use_demo_files=use_demo_files)
-            progress.progress(70)
+            progress.progress(65)
 
-            st.write("Building visualizations...")
+            st.write("Computing market intelligence metrics...")
             if node_data is not None:
                 monthly_revenue, monthly_notes = join_monthly_to_device_summary(monthly_data, cleaned_with_coordinates)
-            progress.progress(90)
+            progress.progress(82)
+
+            st.write("Preparing visualizations and exports...")
+            progress.progress(94)
 
             st.session_state[ANALYSIS_STATE_KEY] = {
                 "analysis_has_run": True,
@@ -981,6 +993,7 @@ def _run_analysis_workflow(
             }
             st.session_state["processed_dataframe"] = cleaned_with_coordinates
             st.session_state["active_dataset"] = cleaned_with_coordinates
+            st.session_state["analysis_completion_notice"] = True
             progress.progress(100)
             st.write("Analysis complete.")
             status.update(label="Analysis complete.", state="complete", expanded=False)
@@ -2094,6 +2107,128 @@ def _set_checkbox_filter_selection(key_prefix: str, options: list[str], *, selec
 def _checkbox_option_key(key_prefix: str, index: int, option: str) -> str:
     safe_option = "".join(character if character.isalnum() else "_" for character in str(option).lower()).strip("_")
     return f"{key_prefix}_option_{index}_{safe_option}"
+
+
+def _render_blog_post_creator(
+    analyzed_data: pd.DataFrame | None,
+    monthly_revenue: pd.DataFrame | None,
+    selected_isos: list[str] | None,
+) -> None:
+    st.subheader("Blog Post Creator")
+    st.caption("Generate a blog-style Markdown draft that turns the current simulation results into a market narrative.")
+
+    if analyzed_data is None or analyzed_data.empty:
+        st.info("Run analysis first to generate a blog draft.")
+        return
+
+    title_options = [
+        "Location is everything",
+        "Best zones are not where you think",
+        "Value stack / money left on the table",
+        "Market timing and volatility",
+        "Custom",
+    ]
+    audience_options = ["Utilities", "VPP operators", "Battery developers", "Asset owners", "General energy audience"]
+    market_options = ["PJM", "ERCOT", "CAISO", "General ISO/RTO"]
+    default_market = _default_blog_market_context(analyzed_data, selected_isos or [])
+
+    control_col1, control_col2, control_col3 = st.columns(3)
+    title_style = control_col1.selectbox("Blog angle / title style", title_options, key="blog_title_style")
+    audience = control_col2.selectbox("Audience", audience_options, key="blog_audience")
+    market_context = control_col3.selectbox(
+        "Market context",
+        market_options,
+        index=market_options.index(default_market) if default_market in market_options else len(market_options) - 1,
+        key="blog_market_context",
+    )
+
+    custom_title = None
+    if title_style == "Custom":
+        custom_title = st.text_input("Custom blog title", key="blog_custom_title")
+
+    cta_col1, cta_col2 = st.columns(2)
+    cta_text = cta_col1.text_input(
+        "CTA text",
+        value="Want to run your own simulation? Schedule a demo with the Flexworks team.",
+        key="blog_cta_text",
+    )
+    cta_link = cta_col2.text_input(
+        "CTA link",
+        value="https://www.intertrust.com/intertrust-flexworks",
+        key="blog_cta_link",
+    )
+    additional_context = st.text_area(
+        "Additional context / review notes",
+        placeholder="Battery specs, market assumptions, event context, or publication notes.",
+        key="blog_additional_context",
+    )
+
+    metric_column = _default_blog_metric(analyzed_data)
+    if metric_column is None:
+        st.error("The active dataset does not contain a supported numeric metric for blog generation.")
+        return
+    start_date, end_date = _blog_time_window(monthly_revenue)
+    st.caption(f"Draft metric: {metric_column.replace('_', ' ')}")
+
+    if st.button("Generate blog draft", type="primary", key="generate_blog_draft"):
+        draft = build_blog_post_draft(
+            analyzed_data,
+            monthly_df=monthly_revenue,
+            iso=market_context,
+            metric=metric_column,
+            start_date=start_date,
+            end_date=end_date,
+            audience=audience,
+            title_style=title_style,
+            custom_title=custom_title,
+            cta_text=cta_text,
+            cta_link=cta_link,
+            additional_context=additional_context,
+        )
+        st.session_state["blog_post_draft_markdown"] = draft
+        st.session_state["blog_post_draft_filename"] = f"{_export_file_stem(market_context, metric_column, 'blog_draft', 'blog')}.md"
+
+    draft_markdown = st.session_state.get("blog_post_draft_markdown")
+    if isinstance(draft_markdown, str) and draft_markdown.strip():
+        with st.expander("Blog draft preview", expanded=True):
+            st.markdown(draft_markdown)
+        st.download_button(
+            "Download blog draft (.md)",
+            data=draft_markdown.encode("utf-8"),
+            file_name=str(st.session_state.get("blog_post_draft_filename", "flexworks_blog_draft.md")),
+            mime="text/markdown",
+        )
+
+
+def _default_blog_market_context(dataframe: pd.DataFrame, selected_isos: list[str]) -> str:
+    selected = [iso for iso in selected_isos if iso in {"PJM", "ERCOT", "CAISO"}]
+    if len(selected) == 1:
+        return selected[0]
+    if "ISO_Region" in dataframe.columns:
+        available = dataframe["ISO_Region"].dropna().astype(str).str.strip().unique().tolist()
+        for iso in ["PJM", "ERCOT", "CAISO"]:
+            if iso in available:
+                return iso
+    return "General ISO/RTO"
+
+
+def _default_blog_metric(dataframe: pd.DataFrame) -> str | None:
+    for column in ["Selected_Metric", "Revenue_per_kW", "Annualized_Revenue", "Opportunity_Score", "Risk_Adjusted_Score"]:
+        if column in dataframe.columns and not pd.to_numeric(dataframe[column], errors="coerce").dropna().empty:
+            return column
+    return None
+
+
+def _blog_time_window(monthly_revenue: pd.DataFrame | None) -> tuple[object | None, object | None]:
+    if monthly_revenue is None or monthly_revenue.empty:
+        return None, None
+    time_column = next((column for column in ["Month", "Timestamp", "Time"] if column in monthly_revenue.columns), None)
+    if time_column is None:
+        return None, None
+    values = pd.to_datetime(monthly_revenue[time_column], errors="coerce").dropna()
+    if values.empty:
+        return None, None
+    return values.min(), values.max()
 
 
 def _render_report(report: str) -> None:

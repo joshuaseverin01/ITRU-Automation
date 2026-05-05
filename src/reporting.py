@@ -183,6 +183,143 @@ def build_executive_summary(
     )
 
 
+def build_blog_post_draft(
+    zone_df: pd.DataFrame,
+    monthly_df: pd.DataFrame | None = None,
+    *,
+    iso: str | None = None,
+    metric: str | None = None,
+    start_date: object | None = None,
+    end_date: object | None = None,
+    audience: str = "General energy audience",
+    title_style: str = "Location is everything",
+    custom_title: str | None = None,
+    cta_text: str | None = None,
+    cta_link: str | None = None,
+    additional_context: str | None = None,
+    simulation_config: Mapping[str, object] | None = None,
+) -> str:
+    """Build a deterministic blog-style Markdown draft from processed market results."""
+
+    selected_iso = (iso or _infer_iso(zone_df) or "General ISO/RTO").strip()
+    metric_column, metric_label = _resolve_blog_metric(zone_df, metric)
+    title = _blog_title(selected_iso, title_style, custom_title)
+    selected_period = _format_period(start_date, end_date, monthly_df)
+
+    if zone_df is None or zone_df.empty:
+        return "\n\n".join(
+            [
+                f"# {title}",
+                "Not enough processed data to generate a blog draft.",
+                "Run analysis first, then review the processed zone or node results before drafting publication copy.",
+            ]
+        ) + "\n"
+
+    if metric_column is None:
+        return "\n\n".join(
+            [
+                f"# {title}",
+                f"Not enough processed data to generate a blog draft because `{metric or 'the selected metric'}` is not available.",
+                "Choose a processed metric such as Revenue per kW, Annualized Revenue, Opportunity Score, or Selected Metric.",
+            ]
+        ) + "\n"
+
+    ranked = _rank_blog_zones(zone_df, metric_column)
+    if ranked.empty:
+        return "\n\n".join(
+            [
+                f"# {title}",
+                f"Not enough numeric {metric_label} data is available to generate a blog draft.",
+                "Review the processed dataset and confirm the metric column contains numeric values.",
+            ]
+        ) + "\n"
+
+    top_rows = ranked.head(3).copy()
+    bottom_rows = ranked.tail(3).sort_values(metric_column, ascending=True).copy()
+    top_value = float(ranked[metric_column].max())
+    bottom_value = float(ranked[metric_column].min())
+    spread = top_value - bottom_value
+    percent_spread = spread / bottom_value if bottom_value > 0 else None
+    zone_count = int(ranked["Zone"].nunique())
+
+    context_lines = []
+    if additional_context and additional_context.strip():
+        context_lines.append(additional_context.strip())
+    if not simulation_config:
+        context_lines.append("Review note: confirm final asset specifications and market assumptions before publication.")
+    monthly_context = _blog_monthly_context(monthly_df)
+    audience_guidance = _audience_takeaways(audience)
+    top_zone_names = _join_items(top_rows["Zone"].astype(str).tolist())
+    bottom_zone_names = _join_items(bottom_rows["Zone"].astype(str).tolist())
+
+    opening = [
+        f"What does a battery arbitrage simulation actually tell us about where market value is concentrating in {selected_iso}?",
+        (
+            f"The latest Flexworks run points to a practical answer: the spread between zones matters. "
+            f"Across {zone_count} analyzed zone(s), the leading locations were {top_zone_names}, while the lowest-performing group included {bottom_zone_names}."
+        ),
+        (
+            f"That gap is important because battery value is rarely just an average market number. "
+            f"Location, timing, congestion patterns, and value stacking can all shape whether a project clears its return expectations."
+        ),
+        (
+            "Flexworks gives teams a repeatable way to move from simulation results to zone-level strategy without manually rebuilding the same analysis every time."
+        ),
+    ]
+
+    setup_lines = [
+        f"- ISO/RTO: {selected_iso}",
+        f"- Time window: {selected_period}",
+        f"- Selected metric: {metric_label}",
+        f"- Zones analyzed: {zone_count}",
+        f"- Measurement focus: {_metric_measurement_note(metric_label)}",
+    ]
+    if context_lines:
+        setup_lines.extend(f"- {line}" for line in context_lines)
+
+    results_lines = [
+        f"The highest zone value was {_fmt_metric_value(top_value, metric_label)} and the lowest was {_fmt_metric_value(bottom_value, metric_label)}.",
+        f"The top-to-bottom spread was {_fmt_metric_value(spread, metric_label)}.",
+        f"Percent spread: {_fmt_percent(percent_spread) if percent_spread is not None else 'n/a because the lowest value is not positive'}.",
+        "",
+        "Highest-performing zones:",
+        _blog_rank_table(top_rows, metric_column, metric_label, start_rank=1),
+        "",
+        "Lowest-performing zones:",
+        _blog_rank_table(bottom_rows, metric_column, metric_label, start_rank=1),
+    ]
+
+    interpretation = [
+        (
+            f"The revenue data suggests that {selected_iso} battery economics are not evenly distributed across the modeled footprint. "
+            f"A spread of {_fmt_metric_value(spread, metric_label)} points to meaningful locational variation in the selected metric."
+        ),
+        _spread_interpretation(percent_spread),
+        (
+            "This does not prove that one zone will always outperform another, but it does indicate where deeper diligence may be most useful. "
+            "For arbitrage strategies, the next question is whether the advantage is persistent, tied to a few periods, or dependent on additional revenue streams."
+        ),
+    ]
+
+    timing_lines = [_blog_timing_section(monthly_context)]
+
+    cta = _blog_cta(cta_text, cta_link)
+    sections = [
+        f"# {title}",
+        "\n\n".join(opening),
+        "## Simulation setup\n\n" + "\n".join(setup_lines),
+        "## Results\n\n" + "\n".join(results_lines),
+        "## What the revenue data shows\n\n" + "\n\n".join(interpretation),
+        "## Timing the market\n\n" + "\n\n".join(timing_lines),
+        f"## Takeaways for {audience}\n\n" + "\n".join(f"- {item}" for item in audience_guidance),
+        "## The power of Flexworks\n\n"
+        "Running this manually is tedious and error-prone. Analysts have to collect exports, clean revenue fields, reshape time-series data, compare dispatch results, join devices to zones, and rebuild charts before the strategic questions can even start.\n\n"
+        "Flexworks compresses that workflow into a repeatable process. The value is not only showing which zone is highest. It helps teams understand where market value concentrates, how stable it appears over time, and where additional revenue streams may be needed.",
+        "## Next steps\n\n" + cta,
+    ]
+    return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
+
+
 def export_dataframe_csv(dataframe: pd.DataFrame) -> bytes:
     """Serialize a dataframe to CSV bytes for Streamlit downloads."""
 
@@ -223,6 +360,265 @@ def safe_plotly_png_bytes(figure: go.Figure) -> tuple[bytes | None, str | None]:
         return figure.to_image(format="png"), None
     except Exception:
         return None, "PNG export requires Kaleido. HTML export is still available."
+
+
+def _resolve_blog_metric(dataframe: pd.DataFrame, metric: str | None) -> tuple[str | None, str]:
+    metric_map = {
+        "Selected Metric": "Selected_Metric",
+        "Selected_Metric": "Selected_Metric",
+        "Revenue per kW": "Revenue_per_kW",
+        "Revenue_per_kW": "Revenue_per_kW",
+        "Annualized Revenue": "Annualized_Revenue",
+        "Annualized_Revenue": "Annualized_Revenue",
+        "Opportunity Score": "Opportunity_Score",
+        "Opportunity_Score": "Opportunity_Score",
+        "Risk-adjusted Score": "Risk_Adjusted_Score",
+        "Risk_Adjusted_Score": "Risk_Adjusted_Score",
+        "Cumulative Revenue": "Cumulative_Revenue",
+        "Cumulative_Revenue": "Cumulative_Revenue",
+        "Monthly Revenue": "Monthly_Revenue",
+        "Monthly_Revenue": "Monthly_Revenue",
+    }
+    preferred_columns = [
+        "Selected_Metric",
+        "Revenue_per_kW",
+        "Annualized_Revenue",
+        "Opportunity_Score",
+        "Risk_Adjusted_Score",
+        "Cumulative_Revenue",
+        "Monthly_Revenue",
+    ]
+    requested_column = metric_map.get(str(metric or "").strip(), str(metric or "").strip() or None)
+    if requested_column and requested_column in dataframe.columns:
+        return requested_column, _blog_metric_label(requested_column, metric)
+    for column in preferred_columns:
+        if column in dataframe.columns and not pd.to_numeric(dataframe[column], errors="coerce").dropna().empty:
+            return column, _blog_metric_label(column, metric)
+    return None, str(metric or "selected metric")
+
+
+def _blog_metric_label(metric_column: str, requested_metric: str | None = None) -> str:
+    labels = {
+        "Selected_Metric": requested_metric if requested_metric and requested_metric != "Selected_Metric" else "Selected metric",
+        "Revenue_per_kW": "Revenue per kW",
+        "Annualized_Revenue": "Annualized Revenue",
+        "Opportunity_Score": "Opportunity Score",
+        "Risk_Adjusted_Score": "Risk-adjusted Score",
+        "Cumulative_Revenue": "Cumulative Revenue",
+        "Monthly_Revenue": "Monthly Revenue",
+    }
+    return labels.get(metric_column, metric_column.replace("_", " "))
+
+
+def _rank_blog_zones(dataframe: pd.DataFrame, metric_column: str) -> pd.DataFrame:
+    zone_column = _first_existing_column(dataframe, ["Zone", "Node_ID", "Device_ID", "Device", "Node_Name"])
+    if zone_column is None or metric_column not in dataframe.columns:
+        return pd.DataFrame()
+
+    working = dataframe[[zone_column, metric_column]].copy()
+    working = working.rename(columns={zone_column: "Zone"})
+    working["Zone"] = working["Zone"].astype("string").str.strip()
+    working[metric_column] = pd.to_numeric(working[metric_column], errors="coerce")
+    working = working.dropna(subset=["Zone", metric_column])
+    working = working.loc[working["Zone"] != ""].copy()
+    if working.empty:
+        return pd.DataFrame()
+    return working.groupby("Zone", as_index=False, dropna=False)[metric_column].mean().sort_values(metric_column, ascending=False).reset_index(drop=True)
+
+
+def _first_existing_column(dataframe: pd.DataFrame, candidates: Sequence[str]) -> str | None:
+    return next((column for column in candidates if column in dataframe.columns), None)
+
+
+def _infer_iso(dataframe: pd.DataFrame | None) -> str | None:
+    if dataframe is None or dataframe.empty or "ISO_Region" not in dataframe.columns:
+        return None
+    values = dataframe["ISO_Region"].dropna().astype(str).str.strip()
+    values = values.loc[values != ""].unique().tolist()
+    if len(values) == 1:
+        return values[0]
+    if "PJM" in values:
+        return "PJM"
+    return values[0] if values else None
+
+
+def _blog_title(selected_iso: str, title_style: str, custom_title: str | None) -> str:
+    if title_style == "Custom" and custom_title and custom_title.strip():
+        return custom_title.strip()
+    titles = {
+        "Location is everything": f"Location Is Everything: What {selected_iso} Battery Revenue Results Suggest",
+        "Best zones are not where you think": f"The Best Battery Zones in {selected_iso} May Not Be the Obvious Ones",
+        "Value stack / money left on the table": f"Where the Battery Value Stack Leaves Money on the Table in {selected_iso}",
+        "Market timing and volatility": f"Market Timing, Volatility, and Battery Revenue in {selected_iso}",
+    }
+    return titles.get(title_style, f"What Flexworks Shows About Battery Revenue in {selected_iso}")
+
+
+def _format_period(start_date: object | None, end_date: object | None, monthly_df: pd.DataFrame | None) -> str:
+    start = _format_date_like(start_date)
+    end = _format_date_like(end_date)
+    if start and end:
+        return start if start == end else f"{start} to {end}"
+
+    if monthly_df is not None and not monthly_df.empty:
+        time_column = _first_existing_column(monthly_df, ["Month", "Timestamp", "Time"])
+        if time_column is not None:
+            times = pd.to_datetime(monthly_df[time_column], errors="coerce").dropna()
+            if not times.empty:
+                first = _format_date_like(times.min())
+                last = _format_date_like(times.max())
+                if first and last:
+                    return first if first == last else f"{first} to {last}"
+    return "selected period"
+
+
+def _format_date_like(value: object | None) -> str | None:
+    if value is None or value == "":
+        return None
+    try:
+        timestamp = pd.to_datetime(value)
+    except Exception:
+        return str(value)
+    if pd.isna(timestamp):
+        return None
+    return timestamp.strftime("%B %Y") if timestamp.day == 1 and timestamp.hour == 0 else timestamp.strftime("%B %-d, %Y")
+
+
+def _metric_measurement_note(metric_label: str) -> str:
+    lowered = metric_label.lower()
+    if "per kw" in lowered:
+        return "zone-level revenue normalized by project size."
+    if "cumulative" in lowered:
+        return "revenue accumulated over the selected time window."
+    if "monthly" in lowered:
+        return "monthly revenue by zone and revenue category."
+    if "annualized" in lowered:
+        return "annualized simulation revenue by location."
+    if "opportunity" in lowered:
+        return "a normalized screening score based on available revenue and risk metrics."
+    return "the selected processed market metric by zone."
+
+
+def _blog_rank_table(dataframe: pd.DataFrame, metric_column: str, metric_label: str, *, start_rank: int) -> str:
+    if dataframe.empty:
+        return "_No rows available._"
+    lines = ["| Rank | Zone | Selected metric |", "| --- | --- | --- |"]
+    for offset, (_, row) in enumerate(dataframe.iterrows(), start=start_rank):
+        lines.append(f"| {offset} | {row['Zone']} | {_fmt_metric_value(row[metric_column], metric_label)} |")
+    return "\n".join(lines)
+
+
+def _spread_interpretation(percent_spread: float | None) -> str:
+    if percent_spread is None:
+        return "Because the lowest value is not positive, the percentage spread should be reviewed manually before publication."
+    if percent_spread >= 0.25:
+        return "The size of the spread suggests that location materially affects arbitrage value and should be treated as a first-order screening variable."
+    if percent_spread >= 0.10:
+        return "The spread indicates measurable locational variation, even if the strongest and weakest zones are not separated by an order of magnitude."
+    return "The spread points to a more compressed result set, which may shift the strategy discussion toward timing, operations, and value stacking."
+
+
+def _blog_monthly_context(monthly_df: pd.DataFrame | None) -> dict[str, object]:
+    if monthly_df is None or monthly_df.empty or "Revenue" not in monthly_df.columns:
+        return {"has_monthly_data": False}
+    time_column = _first_existing_column(monthly_df, ["Month", "Timestamp", "Time"])
+    if time_column is None:
+        return {"has_monthly_data": False}
+
+    working = monthly_df.copy()
+    working["Revenue"] = pd.to_numeric(working["Revenue"], errors="coerce")
+    working["Time"] = pd.to_datetime(working[time_column], errors="coerce")
+    working = working.dropna(subset=["Revenue", "Time"])
+    if working.empty:
+        return {"has_monthly_data": False}
+
+    by_time = working.groupby("Time", as_index=False)["Revenue"].sum().sort_values("Time")
+    peak_row = by_time.sort_values("Revenue", ascending=False).iloc[0]
+    total_positive = float(by_time.loc[by_time["Revenue"] > 0, "Revenue"].sum())
+    peak_share = float(peak_row["Revenue"]) / total_positive if total_positive > 0 and peak_row["Revenue"] > 0 else None
+
+    top_zone = None
+    top_zone_count = None
+    if "Zone" in working.columns:
+        by_time_zone = working.groupby(["Time", "Zone"], as_index=False)["Revenue"].sum()
+        if not by_time_zone.empty:
+            leaders = by_time_zone.sort_values(["Time", "Revenue"], ascending=[True, False]).drop_duplicates(subset=["Time"], keep="first")
+            counts = leaders["Zone"].astype(str).value_counts()
+            if not counts.empty:
+                top_zone = str(counts.index[0])
+                top_zone_count = int(counts.iloc[0])
+
+    return {
+        "has_monthly_data": True,
+        "period_count": int(len(by_time)),
+        "peak_period": _format_date_like(peak_row["Time"]),
+        "peak_revenue": float(peak_row["Revenue"]),
+        "peak_share": peak_share,
+        "top_zone": top_zone,
+        "top_zone_count": top_zone_count,
+    }
+
+
+def _blog_timing_section(monthly_context: Mapping[str, object]) -> str:
+    if not monthly_context.get("has_monthly_data"):
+        return "Review note: add year-by-year interpretation after reviewing monthly patterns."
+
+    lines = [
+        (
+            f"The monthly data covers {monthly_context.get('period_count')} period(s). "
+            f"The highest revenue period was {monthly_context.get('peak_period')} at {_fmt_currency(monthly_context.get('peak_revenue'))}."
+        )
+    ]
+    peak_share = monthly_context.get("peak_share")
+    if isinstance(peak_share, float):
+        if peak_share >= 0.35:
+            lines.append("That concentration suggests the draft should review whether one or two periods are driving a large share of modeled revenue.")
+        else:
+            lines.append("Revenue appears less dependent on a single peak month, though month-by-month review is still useful before publication.")
+    top_zone = monthly_context.get("top_zone")
+    top_zone_count = monthly_context.get("top_zone_count")
+    if top_zone and top_zone_count:
+        lines.append(f"{top_zone} led in {top_zone_count} period(s), which may indicate persistence, but the pattern should be checked against the full monthly chart.")
+    return "\n\n".join(lines)
+
+
+def _audience_takeaways(audience: str) -> list[str]:
+    guidance = {
+        "Utilities": [
+            "Use zone-level results to target programs where flexible load or storage can deliver the highest system value.",
+            "Compare VPP design assumptions against where modeled arbitrage value actually appears.",
+            "Treat low-performing zones as candidates for additional revenue streams or different operating objectives.",
+        ],
+        "VPP operators": [
+            "Use the spread across zones to refine orchestration priorities and portfolio dispatch strategy.",
+            "Look for value stacking opportunities where arbitrage alone does not explain the investment case.",
+            "Compare persistent leaders against event-driven zones before setting portfolio expectations.",
+        ],
+        "Battery developers": [
+            "Use zone screening before deeper diligence on interconnection, site control, and market participation.",
+            "Set revenue expectations by location instead of relying on ISO-wide averages.",
+            "Review whether the strongest zones remain attractive across multiple months, not just one period.",
+        ],
+        "Asset owners": [
+            "Use the results to test payback risk and understand where arbitrage-only returns may be thin.",
+            "Consider whether value stacking is needed in zones with weaker modeled revenue.",
+            "Track whether revenue depends on a few months, which can affect operating and financing assumptions.",
+        ],
+        "General energy audience": [
+            "Zone-level modeling matters because batteries earn revenue from local market conditions, not only broad ISO averages.",
+            "A map can reveal value differences that are hard to see in a table of total revenue alone.",
+            "The same battery strategy can look very different depending on where it is connected.",
+        ],
+    }
+    return guidance.get(audience, guidance["General energy audience"])
+
+
+def _blog_cta(cta_text: str | None, cta_link: str | None) -> str:
+    text = (cta_text or "Want to run your own simulation? Schedule a demo with the Flexworks team.").strip()
+    link = (cta_link or "").strip()
+    if link:
+        return f"[{text}]({link})"
+    return text
 
 
 def _executive_summary(summary: SummaryMetrics, ranked_nodes: pd.DataFrame) -> str:

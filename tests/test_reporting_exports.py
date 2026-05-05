@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from matplotlib.figure import Figure
 
 from src.reporting import (
+    build_blog_post_draft,
     build_executive_summary,
     build_zone_kpi_overview,
     export_dataframe_csv,
@@ -147,6 +148,59 @@ class ReportingExportTests(unittest.TestCase):
         self.assertIn('type="range"', html)
         self.assertIn("February 2024", html)
 
+    def test_blog_post_draft_returns_markdown_with_required_sections(self) -> None:
+        draft = build_blog_post_draft(
+            _zone_data(),
+            monthly_df=_monthly_blog_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            start_date="2024-01",
+            end_date="2024-03",
+            audience="Battery developers",
+            title_style="Location is everything",
+            cta_text="Book a Flexworks walkthrough.",
+            cta_link="https://example.com/demo",
+        )
+
+        self.assertTrue(draft.startswith("# Location Is Everything"))
+        self.assertIn("## Simulation setup", draft)
+        self.assertIn("## Results", draft)
+        self.assertIn("## What the revenue data shows", draft)
+        self.assertIn("## The power of Flexworks", draft)
+        self.assertIn("BGE", draft)
+        self.assertIn("DOM", draft)
+        self.assertIn("JCPL", draft)
+        self.assertIn("Percent spread: 275%", draft)
+        self.assertIn("[Book a Flexworks walkthrough.](https://example.com/demo)", draft)
+
+    def test_blog_post_draft_handles_empty_dataframe_gracefully(self) -> None:
+        draft = build_blog_post_draft(pd.DataFrame(), iso="PJM", metric="Revenue_per_kW")
+
+        self.assertIn("Not enough processed data to generate a blog draft", draft)
+
+    def test_blog_post_draft_handles_missing_metric_gracefully(self) -> None:
+        draft = build_blog_post_draft(pd.DataFrame({"Zone": ["BGE"], "Other": [1]}), iso="PJM", metric="Missing_Metric")
+
+        self.assertIn("Missing_Metric", draft)
+        self.assertIn("not available", draft)
+
+    def test_blog_post_draft_handles_missing_cta_link(self) -> None:
+        draft = build_blog_post_draft(
+            _zone_data(),
+            iso="PJM",
+            metric="Selected_Metric",
+            cta_text="Talk to the Flexworks team.",
+            cta_link="",
+        )
+
+        self.assertIn("Talk to the Flexworks team.", draft)
+        self.assertNotIn("[Talk to the Flexworks team.](", draft)
+
+    def test_blog_post_draft_includes_review_note_when_assumptions_missing(self) -> None:
+        draft = build_blog_post_draft(_zone_data(), iso="PJM", metric="Selected_Metric")
+
+        self.assertIn("Review note: confirm final asset specifications and market assumptions before publication.", draft)
+
 
 def _zone_data() -> pd.DataFrame:
     return pd.DataFrame(
@@ -162,6 +216,16 @@ def _matplotlib_figure() -> Figure:
     axis = figure.add_subplot(111)
     axis.plot([1, 2], [3, 4])
     return figure
+
+
+def _monthly_blog_data() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Zone": ["BGE", "DOM", "BGE", "DPL", "BGE", "JCPL"],
+            "Month": ["2024-01", "2024-01", "2024-02", "2024-02", "2024-03", "2024-03"],
+            "Revenue": [100, 80, 140, 30, 60, 10],
+        }
+    )
 
 
 if __name__ == "__main__":
