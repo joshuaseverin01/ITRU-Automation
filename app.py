@@ -226,6 +226,56 @@ def _inject_global_styles() -> None:
             fill: #1F2937 !important;
             stroke: #1F2937 !important;
         }
+        @keyframes flexworks-running-pulse {
+            0%, 100% { opacity: 0.72; }
+            50% { opacity: 1; }
+        }
+        [data-testid="stStatusWidget"] img[alt="Running..."] {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        [data-testid="stStatusWidget"] img[alt="Running..."] + label,
+        [data-testid="stStatusWidget"] img[alt="Running..."] ~ label {
+            color: #1F2937 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            max-width: 8rem !important;
+            min-width: auto !important;
+            margin: 0 0.45rem 0 0 !important;
+            padding: 0 !important;
+            clip: auto !important;
+            overflow: visible !important;
+            white-space: nowrap !important;
+            text-transform: none !important;
+            font-weight: 700 !important;
+            letter-spacing: 0 !important;
+            animation: flexworks-running-pulse 1.7s ease-in-out infinite;
+        }
+        [data-testid="stStatusWidget"] img[alt="Running..."] + label::before,
+        [data-testid="stStatusWidget"] img[alt="Running..."] ~ label::before {
+            content: "";
+            width: 0.45rem;
+            height: 0.45rem;
+            border-radius: 999px;
+            background: #1CB51C;
+            box-shadow: 0 0 0 0.18rem rgba(28, 181, 28, 0.16);
+            margin-right: 0.42rem;
+            flex: 0 0 auto;
+        }
+        [data-testid="stStatusWidget"] img[alt="Running..."] ~ span,
+        [data-testid="stStatusWidget"] img[alt="Running..."] ~ span button {
+            opacity: 1 !important;
+            visibility: visible !important;
+            max-width: 8rem !important;
+            min-width: auto !important;
+            clip: auto !important;
+            overflow: visible !important;
+        }
         [data-testid="stSidebar"],
         [data-testid="stSidebarContent"] {
             background: #F8FFF8;
