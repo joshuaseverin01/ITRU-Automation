@@ -49,6 +49,15 @@ from src.reporting import (
     plotly_figures_to_html_bytes,
     safe_plotly_png_bytes,
 )
+from src.presentation import (
+    PRESENTATION_AUDIENCES,
+    PRESENTATION_PURPOSES,
+    PRESENTATION_STYLES,
+    build_presentation_deck_draft,
+    presentation_deck_to_dict,
+    presentation_deck_to_pptx_bytes,
+    validate_presentation_deck,
+)
 from src.temporal import (
     TIME_GRANULARITY_MONTHLY,
     TIME_GRANULARITY_NONE,
@@ -99,53 +108,69 @@ ISO_METRIC_KEY = "iso_snapshot_metric"
 ISO_PREVIOUS_TIME_VIEW_MODE_KEY = "iso_previous_time_view_mode"
 
 
-def is_demo_mode(
+def get_secret_or_env(
+    name: str,
+    default: str = "",
     environ: Mapping[str, str] | None = None,
     secrets: Mapping[str, object] | None = None,
-) -> bool:
-    """Return True when the app is locked to bundled public demo inputs."""
+) -> str:
+    """Safely read configuration from environment first, then Streamlit secrets."""
 
     env = os.environ if environ is None else environ
-    app_mode = _configured_value("APP_MODE", env, secrets)
-    demo_mode = _configured_value("DEMO_MODE", env, secrets)
-    return str(app_mode or "").strip().lower() == "demo" or str(demo_mode or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-        "demo",
-    }
-
-
-def _configured_value(
-    key: str,
-    environ: Mapping[str, str],
-    secrets: Mapping[str, object] | None,
-) -> object | None:
-    env_value = environ.get(key)
+    env_value = env.get(name)
     if env_value not in (None, ""):
-        return env_value
+        return str(env_value)
     if secrets is None:
         try:
             secrets = st.secrets
         except Exception:
-            return None
+            return default
     try:
-        return secrets.get(key)
+        value = secrets.get(name, default)
     except Exception:
         try:
-            return secrets[key]
+            value = secrets[name]
         except Exception:
-            return None
+            return default
+    if value in (None, ""):
+        return default
+    return str(value)
 
 
-def main() -> None:
+def is_public_demo_only(
+    environ: Mapping[str, str] | None = None,
+    secrets: Mapping[str, object] | None = None,
+) -> bool:
+    """Return True when the deployment must never expose upload-enabled mode."""
+
+    value = get_secret_or_env("PUBLIC_DEMO_ONLY", "", environ=environ, secrets=secrets).strip().lower()
+    return value in {"1", "true", "yes", "demo"}
+
+
+def is_demo_mode(
+    force_demo_mode: bool | None = None,
+    environ: Mapping[str, str] | None = None,
+    secrets: Mapping[str, object] | None = None,
+) -> bool:
+    """Return True when the app should render bundled public demo inputs."""
+
+    if force_demo_mode is True:
+        return True
+    if is_public_demo_only(environ=environ, secrets=secrets):
+        return True
+
+    app_mode = get_secret_or_env("APP_MODE", "", environ=environ, secrets=secrets).strip().lower()
+    demo_mode = get_secret_or_env("DEMO_MODE", "", environ=environ, secrets=secrets).strip().lower()
+    return app_mode == "demo" or demo_mode in {"1", "true", "yes", "demo"}
+
+
+def main(force_demo_mode: bool | None = None) -> None:
     st.set_page_config(page_title="Flexworks Arbitrage Intelligence Dashboard", layout="wide")
     _inject_global_styles()
     _render_header()
 
     try:
-        _render_app()
+        _render_app(force_demo_mode=force_demo_mode)
     except Exception as exc:  # pragma: no cover - final UI safety net
         st.error("The analysis could not be completed. Check the input files and try again.")
         st.caption(str(exc))
@@ -716,9 +741,9 @@ def _walkthrough_html_sections(demo_mode: bool = False) -> str:
     )
 
 
-def _render_app() -> None:
+def _render_app(force_demo_mode: bool | None = None) -> None:
     state = _analysis_state()
-    demo_mode = is_demo_mode()
+    demo_mode = is_demo_mode(force_demo_mode=force_demo_mode)
     if not demo_mode and st.sidebar.button("Show walkthrough", use_container_width=True, key="show_walkthrough_button"):
         _reopen_walkthrough(st.session_state)
     _render_walkthrough(demo_mode)
@@ -847,6 +872,7 @@ def _render_app() -> None:
     if not state.get("analysis_has_run"):
         _render_empty_state(demo_files_available, demo_mode=demo_mode)
         _render_blog_post_creator(None, None, [])
+        _render_presentation_draft_creator(None, None, [])
         return
 
     if staged_signature != state.get("input_signature"):
@@ -869,6 +895,7 @@ def _render_app() -> None:
         if monthly_data is not None:
             _render_monthly_revenue_section(monthly_data)
         _render_blog_post_creator(None, monthly_data, selected_isos=[])
+        _render_presentation_draft_creator(None, monthly_data, selected_isos=[])
         return
 
     cleaned_with_coordinates = state["cleaned_with_coordinates"]
@@ -925,6 +952,7 @@ def _render_app() -> None:
     _render_report(report)
     _render_cleaning_summary(cleaning_summary)
     _render_blog_post_creator(analyzed_data, monthly_revenue, selected_isos)
+    _render_presentation_draft_creator(analyzed_data, monthly_revenue, selected_isos)
 
 
 def _default_analysis_state() -> dict[str, object]:
@@ -1041,6 +1069,10 @@ def _run_analysis_workflow(
     st.session_state[ANALYSIS_STATE_KEY] = _default_analysis_state()
     st.session_state.pop("blog_post_draft_markdown", None)
     st.session_state.pop("blog_post_draft_filename", None)
+    st.session_state.pop("presentation_deck", None)
+    st.session_state.pop("presentation_generation_message", None)
+    st.session_state.pop("presentation_generation_mode", None)
+    st.session_state.pop("presentation_deck_filename", None)
     progress = st.progress(0)
 
     try:
@@ -2343,6 +2375,198 @@ def _render_blog_post_creator(
             file_name=str(st.session_state.get("blog_post_draft_filename", "flexworks_blog_draft.md")),
             mime="text/markdown",
         )
+
+
+def _render_presentation_draft_creator(
+    analyzed_data: pd.DataFrame | None,
+    monthly_revenue: pd.DataFrame | None,
+    selected_isos: list[str] | None,
+) -> None:
+    st.subheader("Presentation Draft Creator")
+    st.caption("Generate an editable slide deck draft from a topic, source material, or the active blog draft.")
+
+    blog_draft = st.session_state.get("blog_post_draft_markdown")
+    has_blog_draft = isinstance(blog_draft, str) and bool(blog_draft.strip())
+    if (analyzed_data is None or analyzed_data.empty) and not has_blog_draft:
+        st.info("Run analysis first or generate a blog draft before creating a presentation.")
+        return
+
+    source_labels = ["Topic / prompt", "Source material"]
+    if has_blog_draft:
+        source_labels.append("Generated blog draft")
+    source_label = st.selectbox("Presentation source", source_labels, key="presentation_source_label")
+    source_type = {
+        "Topic / prompt": "topic",
+        "Source material": "source_material",
+        "Generated blog draft": "blog_post",
+    }[source_label]
+
+    topic = ""
+    source_text = ""
+    if source_type == "topic":
+        topic = st.text_input(
+            "Topic or presentation prompt",
+            value="Flexworks zone-level battery revenue strategy",
+            key="presentation_topic",
+        )
+    elif source_type == "blog_post":
+        st.caption("The active generated blog draft will be compressed into a slide narrative.")
+        source_text = str(blog_draft or "")
+    else:
+        source_text = st.text_area(
+            "Source material",
+            placeholder="Paste notes, a memo, simulation context, or source text for the deck.",
+            height=180,
+            key="presentation_source_material",
+        )
+
+    purpose_options = list(PRESENTATION_PURPOSES.items())
+    audience_options = list(PRESENTATION_AUDIENCES.items())
+    style_options = list(PRESENTATION_STYLES.items())
+    tone_options = [
+        "Investor-ready language",
+        "Marketing language",
+        "Technical language",
+        "Executive strategy language",
+        "Product/partner language",
+    ]
+    settings_col1, settings_col2, settings_col3, settings_col4 = st.columns(4)
+    purpose_label = settings_col1.selectbox("Deck purpose", [label for _, label in purpose_options], key="presentation_purpose")
+    audience_label = settings_col2.selectbox("Audience", [label for _, label in audience_options], key="presentation_audience")
+    slide_count = settings_col3.selectbox("Slide count", [5, 8, 10, 12], index=1, key="presentation_slide_count")
+    style_label = settings_col4.selectbox("Style", [label for _, label in style_options], index=4, key="presentation_style")
+
+    detail_col1, detail_col2, detail_col3 = st.columns(3)
+    tone = detail_col1.selectbox("Tone", tone_options, index=3, key="presentation_tone")
+    include_notes = detail_col2.checkbox("Include speaker notes", value=True, key="presentation_include_notes")
+    include_visuals = detail_col3.checkbox("Include visual suggestions", value=True, key="presentation_include_visuals")
+
+    api_key = get_secret_or_env("OPENAI_API_KEY", "")
+    ai_model = get_secret_or_env("OPENAI_PRESENTATION_MODEL", get_secret_or_env("OPENAI_MODEL", "gpt-4o-mini"))
+    use_ai = st.checkbox(
+        "Use AI generation when configured",
+        value=bool(api_key),
+        disabled=not bool(api_key),
+        key="presentation_use_ai",
+        help="If OPENAI_API_KEY is configured, the app requests structured slide JSON and validates it before preview/export.",
+    )
+    if not api_key:
+        st.caption("No AI API key is configured, so the app will generate a deterministic structured draft from the active inputs.")
+
+    purpose = _value_for_label(PRESENTATION_PURPOSES, purpose_label)
+    audience = _value_for_label(PRESENTATION_AUDIENCES, audience_label)
+    style = _value_for_label(PRESENTATION_STYLES, style_label)
+    market_context = _default_blog_market_context(analyzed_data, selected_isos or []) if analyzed_data is not None else "the selected energy market"
+
+    if st.button("Generate presentation draft", type="primary", key="generate_presentation_draft"):
+        try:
+            result = build_presentation_deck_draft(
+                {
+                    "sourceType": source_type,
+                    "topic": topic,
+                    "sourceText": source_text,
+                    "tone": tone,
+                    "purpose": purpose,
+                    "audience": audience,
+                    "style": style,
+                    "slideCount": slide_count,
+                    "includeSpeakerNotes": include_notes,
+                    "includeVisualSuggestions": include_visuals,
+                },
+                zone_df=analyzed_data,
+                monthly_df=monthly_revenue,
+                ai_api_key=api_key,
+                ai_model=ai_model,
+                prefer_ai=use_ai,
+            )
+            st.session_state["presentation_deck"] = presentation_deck_to_dict(result.deck)
+            st.session_state["presentation_generation_mode"] = result.generation_mode
+            st.session_state["presentation_generation_message"] = result.message
+            st.session_state["presentation_deck_filename"] = f"{_export_file_stem(market_context, 'presentation', 'draft', 'pptx')}.pptx"
+        except ValueError as exc:
+            st.error(str(exc))
+
+    deck_data = st.session_state.get("presentation_deck")
+    if isinstance(deck_data, dict):
+        mode = st.session_state.get("presentation_generation_mode")
+        message = st.session_state.get("presentation_generation_message")
+        if mode:
+            st.caption(f"Generation mode: {mode}")
+        if isinstance(message, str) and message:
+            if "fallback" in str(mode).lower():
+                st.warning(message)
+            else:
+                st.info(message)
+        edited_deck = _render_editable_presentation_deck(deck_data)
+        try:
+            pptx_bytes = presentation_deck_to_pptx_bytes(edited_deck)
+            st.download_button(
+                "Download PowerPoint (.pptx)",
+                data=pptx_bytes,
+                file_name=str(st.session_state.get("presentation_deck_filename", "flexworks_presentation_draft.pptx")),
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                key="download_presentation_pptx",
+            )
+        except Exception as exc:
+            st.warning(f"PowerPoint export is unavailable: {exc}")
+
+
+def _render_editable_presentation_deck(deck_data: dict[str, object]) -> dict[str, object]:
+    deck = validate_presentation_deck(deck_data)
+    st.markdown("#### Editable slide preview")
+    deck_title = st.text_input("Deck title", value=deck.deckTitle, key="presentation_deck_title")
+    deck_subtitle = st.text_input("Deck subtitle", value=deck.deckSubtitle or "", key="presentation_deck_subtitle")
+    base_slides = presentation_deck_to_dict(deck)["slides"]
+    edited_slides = []
+    for slide in deck.slides:
+        with st.expander(f"Slide {slide.slideNumber}: {slide.title}", expanded=slide.slideNumber <= 2):
+            title = st.text_input("Slide title", value=slide.title, key=f"presentation_slide_{slide.id}_title")
+            subtitle = st.text_input("Subtitle", value=slide.subtitle or "", key=f"presentation_slide_{slide.id}_subtitle")
+            bullets_text = st.text_area(
+                "Bullets",
+                value="\n".join(slide.bullets),
+                height=120,
+                key=f"presentation_slide_{slide.id}_bullets",
+            )
+            takeaway = st.text_area("Takeaway", value=slide.takeaway or "", height=70, key=f"presentation_slide_{slide.id}_takeaway")
+            speaker_notes = st.text_area(
+                "Speaker notes",
+                value=slide.speakerNotes or "",
+                height=100,
+                key=f"presentation_slide_{slide.id}_notes",
+            )
+            visual_prompt = st.text_area(
+                "Visual suggestion",
+                value=slide.visualPrompt or "",
+                height=75,
+                key=f"presentation_slide_{slide.id}_visual",
+            )
+            edited_slide = {
+                **base_slides[slide.slideNumber - 1],
+                "title": title,
+                "subtitle": subtitle.strip() or None,
+                "bullets": [line.strip() for line in bullets_text.splitlines() if line.strip()],
+                "takeaway": takeaway.strip() or None,
+                "speakerNotes": speaker_notes.strip() or None,
+                "visualPrompt": visual_prompt.strip() or None,
+            }
+            edited_slides.append(edited_slide)
+
+    edited_deck = {
+        "deckTitle": deck_title,
+        "deckSubtitle": deck_subtitle.strip() or None,
+        "audience": deck.audience,
+        "purpose": deck.purpose,
+        "style": deck.style,
+        "sourceSummary": deck.sourceSummary,
+        "slides": edited_slides,
+    }
+    st.session_state["presentation_deck"] = edited_deck
+    return edited_deck
+
+
+def _value_for_label(options: dict[str, str], label: str) -> str:
+    return next((value for value, option_label in options.items() if option_label == label), next(iter(options)))
 
 
 def _default_blog_market_context(dataframe: pd.DataFrame, selected_isos: list[str]) -> str:

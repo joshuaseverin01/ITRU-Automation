@@ -8,7 +8,7 @@ import unittest
 from src.data_loader import load_csv
 from src.geo import load_pjm_zone_geojson
 from src.ingestion import ExportSchema, parse_flexworks_export
-from app import DEMO_DATA_DIR, DEMO_FILE_PATHS, is_demo_mode
+from app import DEMO_DATA_DIR, DEMO_FILE_PATHS, is_demo_mode, is_public_demo_only
 
 
 DEMO_DIR = Path("demo_data")
@@ -18,6 +18,15 @@ DEMO_ZONES_GEOJSON = DEMO_DIR / "zones.geojson"
 
 
 class DemoDataTests(unittest.TestCase):
+    def test_public_demo_only_enabled_by_flag(self) -> None:
+        self.assertTrue(is_public_demo_only(environ={"PUBLIC_DEMO_ONLY": "true"}, secrets={}))
+
+    def test_public_demo_only_forces_demo_mode(self) -> None:
+        self.assertTrue(is_demo_mode(environ={"PUBLIC_DEMO_ONLY": "true"}, secrets={}))
+
+    def test_force_demo_mode_enables_demo_mode(self) -> None:
+        self.assertTrue(is_demo_mode(force_demo_mode=True, environ={}, secrets={}))
+
     def test_demo_mode_enabled_by_app_mode(self) -> None:
         self.assertTrue(is_demo_mode(environ={"APP_MODE": "demo"}, secrets={}))
 

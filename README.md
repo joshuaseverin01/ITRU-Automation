@@ -2,7 +2,7 @@
 
 Turn battery arbitrage simulations into zone-level market strategy.
 
-Flexworks Arbitrage Intelligence Dashboard is a local-first Streamlit application for cleaning Flexworks simulation exports, analyzing battery arbitrage performance, comparing zones across ISOs, visualizing PJM zone performance over time, and exporting strategy-ready data, visuals, and summaries.
+Flexworks Arbitrage Intelligence Dashboard is a local-first Streamlit application for cleaning Flexworks simulation exports, analyzing battery arbitrage performance, comparing zones across ISOs, visualizing PJM zone performance over time, and exporting strategy-ready data, visuals, summaries, blog drafts, and presentation drafts.
 
 ## Portfolio Pitch
 
@@ -20,6 +20,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - Displays point maps, matplotlib-rendered PJM zone maps, cumulative revenue map-and-bar views, and ISO-focused time-series map-and-bar views.
 - Supports snapshot, time-range, multi-snapshot, and animation modes for PJM zonal performance.
 - Generates deterministic Markdown and text executive summaries without external APIs.
+- Creates editable presentation draft decks from a topic, source material, or generated blog draft, with optional AI generation when an API key is configured.
 - Exports processed CSVs and interactive Plotly HTML visuals.
 
 ## Key Features
@@ -31,6 +32,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - **Interactive visual exports:** Saves current Plotly figures as standalone HTML files.
 - **Strategy Export Center:** Downloads processed data and deterministic executive summaries as Markdown or plain text.
 - **Blog Post Creator:** Generates deterministic Markdown blog drafts from processed market results for publication review.
+- **Presentation Draft Creator:** Generates structured slide JSON, renders editable slide cards, and exports a usable PowerPoint `.pptx` deck.
 - **Demo-ready UI:** Includes a first-time walkthrough, polished landing state, usage guidance, bundled sample dataset option, and client-facing section names.
 
 ## Technical Stack
@@ -40,6 +42,7 @@ The project compresses a multi-day consulting workflow into a local dashboard: u
 - Pandas
 - Plotly
 - Matplotlib
+- python-pptx
 - GeoJSON / geospatial mapping
 - unittest
 
@@ -129,21 +132,27 @@ The app runs locally and does not require a database, authentication, deployment
 
 ## Demo Mode Deployment
 
-For a locked public demo that only uses bundled sample files:
+For a locked public demo deployment, set this in Streamlit Cloud secrets or the deployment environment:
 
-```bash
-APP_MODE=demo streamlit run app.py
+```toml
+PUBLIC_DEMO_ONLY = "true"
 ```
 
-On Streamlit Cloud or another hosted environment, set an environment variable or secret:
+With `PUBLIC_DEMO_ONLY=true`, both `/` and `/demo` render the bundled-data demo mode. Upload controls are hidden, the full app is not reachable from that deployment, and users can only load the bundled files from `demo_data/`, run the analysis, explore the dashboard, and download generated demo outputs.
+
+To preview that public demo behavior locally:
+
+```bash
+PUBLIC_DEMO_ONLY=true streamlit run app.py
+```
+
+You can also run demo mode without locking the whole deployment by setting:
 
 ```toml
 APP_MODE = "demo"
 ```
 
-The public demo deployment should set `APP_MODE=demo`. In demo mode, upload controls are hidden and users can only load the bundled files from `demo_data/`, run the analysis, explore the dashboard, and download generated demo outputs.
-
-For the full internal version, run normally without `APP_MODE=demo`:
+For the full internal version, do not set `PUBLIC_DEMO_ONLY`, `APP_MODE=demo`, or `DEMO_MODE=true`. Run normally:
 
 ```bash
 streamlit run app.py
@@ -187,6 +196,7 @@ Users can replace these with their own Flexworks exports, device-to-zone mapping
 - Markdown executive summary
 - Plain text executive summary
 - Markdown blog draft
+- PowerPoint presentation draft
 - Optional PNG export when Plotly image export dependencies, such as Kaleido, are installed in the environment
 
 Kaleido is intentionally not required for the core app. If it is unavailable, HTML export remains supported and the app shows a clear PNG-export warning.
@@ -194,6 +204,12 @@ Kaleido is intentionally not required for the core app. If it is unavailable, HT
 ## Blog Post Creator
 
 The Blog Post Creator turns the active processed market results into a deterministic Markdown draft with a simulation setup, ranked zone results, revenue interpretation, audience-specific takeaways, and Flexworks positioning. Drafts should be reviewed before publication for final asset specifications, battery assumptions, market context, and any claims that require external validation.
+
+## Presentation Draft Creator
+
+The Presentation Draft Creator turns a topic, source material, or generated blog draft into validated structured slide data. The app previews each slide as editable cards for titles, bullets, takeaways, speaker notes, and visual suggestions, then exports the edited deck as a `.pptx` file.
+
+If `OPENAI_API_KEY` is configured, the presentation generator can request structured slide JSON from the configured model. If no key is available, the app creates a deterministic local presentation draft from the active inputs and processed Flexworks metrics.
 
 ## Methodology
 

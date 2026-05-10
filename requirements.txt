@@ -4,3 +4,4 @@ streamlit>=1.32
 plotly>=5.18
 matplotlib>=3.8
 pillow>=10.0
+python-pptx>=1.0
