@@ -130,33 +130,27 @@ streamlit run app.py
 
 The app runs locally and does not require a database, authentication, deployment service, or external API.
 
-## Demo Mode Deployment
+## Internal And Demo Modes
 
-For a locked public demo deployment, set this in Streamlit Cloud secrets or the deployment environment:
+The current branch is the full internal dashboard by default. Run normally to use real FlexWorks uploads:
+
+```bash
+streamlit run app.py
+```
+
+In this mode, the sidebar shows upload controls for FlexWorks CSVs, an optional device-to-zone mapping CSV, and an optional zones GeoJSON. It does not expose the public demo workflow or a demo page selector.
+
+Reusable demo-mode helpers remain in the codebase for a later public demo branch. To preview bundled demo mode locally without creating a separate branch, set an environment variable:
 
 ```toml
 PUBLIC_DEMO_ONLY = "true"
 ```
 
-With `PUBLIC_DEMO_ONLY=true`, both `/` and `/demo` render the bundled-data demo mode. Upload controls are hidden, the full app is not reachable from that deployment, and users can only load the bundled files from `demo_data/`, run the analysis, explore the dashboard, and download generated demo outputs.
-
-To preview that public demo behavior locally:
-
 ```bash
 PUBLIC_DEMO_ONLY=true streamlit run app.py
 ```
 
-You can also run demo mode without locking the whole deployment by setting:
-
-```toml
-APP_MODE = "demo"
-```
-
-For the full internal version, do not set `PUBLIC_DEMO_ONLY`, `APP_MODE=demo`, or `DEMO_MODE=true`. Run normally:
-
-```bash
-streamlit run app.py
-```
+Do not set `PUBLIC_DEMO_ONLY`, `APP_MODE=demo`, or `DEMO_MODE=true` for the production/internal deployment.
 
 ## How to Run Tests
 
@@ -172,7 +166,7 @@ python -m py_compile app.py src/*.py
 
 ## Demo Data
 
-Bundled PJM demo files are included so first-time users can test the full dashboard workflow without their own Flexworks files:
+Bundled PJM demo files remain in the repository for future public demo work and local testing:
 
 ```text
 demo_data/
@@ -181,11 +175,7 @@ demo_data/
   zones.geojson
 ```
 
-Use the sidebar **Demo files** expander, click **Load Demo Files**, then click **Run Analysis**. The demo files illustrate the workflow: a Flexworks monthly revenue export, a device-to-zone mapping/device summary file, and zone polygon boundaries.
-
-The app includes a built-in walkthrough and demo dataset for first-time users.
-
-Users can replace these with their own Flexworks exports, device-to-zone mapping CSV, and zone GeoJSON. Demo data is intended for walkthroughs and portfolio presentations, not investment analysis.
+The full internal app does not show a demo loader by default. Users should upload their own Flexworks exports, device-to-zone mapping CSV, and zone GeoJSON through the sidebar. Demo data is intended for local testing and portfolio/demo branch work, not investment analysis.
 
 ## Export Outputs
 

@@ -39,6 +39,9 @@ class DemoDataTests(unittest.TestCase):
     def test_demo_mode_disabled_by_default(self) -> None:
         self.assertFalse(is_demo_mode(environ={}, secrets={}))
 
+    def test_demo_page_is_not_exposed_in_full_app_navigation(self) -> None:
+        self.assertFalse(Path("pages/demo.py").exists())
+
     def test_demo_files_exist_at_relative_paths(self) -> None:
         for path in (DEMO_FLEXWORKS_EXPORT, DEMO_DEVICE_MAPPING, DEMO_ZONES_GEOJSON):
             with self.subTest(path=str(path)):

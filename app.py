@@ -569,9 +569,6 @@ def _render_empty_state(has_demo_data: bool, *, demo_mode: bool = False) -> None
             ]
         )
     )
-    if has_demo_data:
-        st.caption("Demo files are available from the sidebar. Load them, then click Run Analysis to explore the PJM workflow.")
-
 
 def _render_footer() -> None:
     st.divider()
@@ -729,13 +726,13 @@ def _walkthrough_markdown(demo_mode: bool = False) -> str:
         )
     return "\n\n".join(
         [
-            "### 1. Start with demo files\n"
-            "First-time users can open the sidebar, expand **Demo files**, click **Load Demo Files**, "
-            "then click **Run Analysis**. This loads a bundled PJM sample workflow so you can explore the dashboard without preparing your own exports.",
-            "### 2. Upload your own data\n"
+            "### 1. Upload FlexWorks inputs\n"
             "**FlexWorks Export CSVs** contain simulation revenue or market performance data. "
             "**Device-to-Zone Mapping CSV** connects simulation devices or nodes to zone names. "
             "**Zones GeoJSON** provides the polygon boundaries used for zone maps.",
+            "### 2. Run analysis\n"
+            "Click **Run Analysis** after staging the required FlexWorks export files. "
+            "The app cleans exports, validates schemas, maps zones, and computes market intelligence metrics.",
             "### 3. Explore the analysis\n"
             "**Snapshot** shows one time period. **Time range** aggregates over a selected window. "
             "**Multi-snapshot** compares several points across time. **Animation** shows how zone performance evolves with playback controls.",
@@ -764,12 +761,12 @@ def _walkthrough_html_sections(demo_mode: bool = False) -> str:
     else:
         sections = [
             (
-                "1. Start with demo files",
-                "Open the sidebar, expand <strong>Demo files</strong>, click <strong>Load Demo Files</strong>, then click <strong>Run Analysis</strong> to launch a bundled PJM sample workflow.",
+                "1. Upload FlexWorks inputs",
+                "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
             ),
             (
-                "2. Upload your own data",
-                "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
+                "2. Run analysis",
+                "Click <strong>Run Analysis</strong> after staging the required FlexWorks exports. The app cleans files, validates schemas, maps zones, and computes market intelligence metrics.",
             ),
             (
                 "3. Explore the analysis",
@@ -843,22 +840,11 @@ def _render_app(force_demo_mode: bool | None = None) -> None:
             help="Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.",
         )
         st.sidebar.caption("Upload zone polygon boundaries. The GeoJSON must include a zone name field matching the processed data.")
-        with st.sidebar.expander("Demo files", expanded=False):
-            st.caption("Use these bundled PJM sample files to test the dashboard without your own Flexworks export.")
-            demo_clicked = st.button(
-                "Load Demo Files",
-                disabled=not demo_files_available,
-                use_container_width=True,
-                key="load_demo_files",
-            )
-            if not demo_files_available:
-                st.warning("Bundled demo files are missing from demo_data/.")
-            elif st.session_state.get("demo_files_loaded"):
-                st.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
+        st.sidebar.caption("Upload real FlexWorks files, then click Run Analysis to generate market intelligence outputs.")
         if uploaded_exports:
             st.session_state["demo_files_loaded"] = False
 
-    if demo_clicked:
+    if demo_clicked and demo_mode:
         demo_progress = st.sidebar.progress(0)
         with st.sidebar.status("Loading bundled demo files...", expanded=True) as status:
             st.write("Checking bundled demo files...")
@@ -869,19 +855,15 @@ def _render_app(force_demo_mode: bool | None = None) -> None:
         demo_progress.empty()
         st.session_state["demo_files_loaded"] = True
         st.session_state["demo_files_notice"] = True
-    if st.session_state.pop("demo_files_notice", False):
+    if demo_mode and st.session_state.pop("demo_files_notice", False):
         st.sidebar.success("Demo files loaded. Click Run Analysis to generate sample PJM market intelligence outputs.")
-    use_demo_files = bool(st.session_state.get("demo_files_loaded")) and demo_files_available
+    if not demo_mode:
+        st.session_state["demo_files_loaded"] = False
+        st.session_state.pop("demo_files_notice", None)
+    use_demo_files = demo_mode and bool(st.session_state.get("demo_files_loaded")) and demo_files_available
     if use_demo_files:
         st.sidebar.caption("Demo inputs staged: Flexworks monthly export, device-to-zone mapping, and zones GeoJSON.")
 
-    if not demo_mode:
-        use_local_pjm_geojson = st.sidebar.checkbox(
-            "Use bundled zones GeoJSON",
-            value=DEFAULT_PJM_GEOJSON_PATH.exists() and uploaded_pjm_geojson is None and not use_demo_files,
-            disabled=uploaded_pjm_geojson is not None or use_demo_files or not DEFAULT_PJM_GEOJSON_PATH.exists(),
-            key="staged_use_local_pjm_geojson",
-        )
     _stage_uploaded_inputs(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
 
     staged_signature = _staged_input_signature(uploaded_exports, uploaded_lookup, uploaded_pjm_geojson, use_demo_files, use_local_pjm_geojson)
@@ -907,7 +889,7 @@ def _render_app(force_demo_mode: bool | None = None) -> None:
         if demo_mode:
             st.sidebar.caption("Load demo files before running analysis.")
         else:
-            st.sidebar.caption("Upload a Flexworks export or load demo files before running analysis.")
+            st.sidebar.caption("Upload a FlexWorks export before running analysis.")
 
     if demo_mode:
         score_weights = DEFAULT_SCORE_WEIGHTS.copy()
