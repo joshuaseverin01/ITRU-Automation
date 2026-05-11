@@ -137,16 +137,6 @@ def get_secret_or_env(
     return str(value)
 
 
-def is_public_demo_only(
-    environ: Mapping[str, str] | None = None,
-    secrets: Mapping[str, object] | None = None,
-) -> bool:
-    """Return True when the deployment must never expose upload-enabled mode."""
-
-    value = get_secret_or_env("PUBLIC_DEMO_ONLY", "", environ=environ, secrets=secrets).strip().lower()
-    return value in {"1", "true", "yes", "demo"}
-
-
 def is_demo_mode(
     force_demo_mode: bool | None = None,
     environ: Mapping[str, str] | None = None,
@@ -156,12 +146,9 @@ def is_demo_mode(
 
     if force_demo_mode is True:
         return True
-    if is_public_demo_only(environ=environ, secrets=secrets):
-        return True
 
-    app_mode = get_secret_or_env("APP_MODE", "", environ=environ, secrets=secrets).strip().lower()
-    demo_mode = get_secret_or_env("DEMO_MODE", "", environ=environ, secrets=secrets).strip().lower()
-    return app_mode == "demo" or demo_mode in {"1", "true", "yes", "demo"}
+    app_mode = get_secret_or_env("APP_MODE", "production", environ=environ, secrets=secrets).strip().lower()
+    return app_mode == "demo"
 
 
 def main(force_demo_mode: bool | None = None) -> None:
@@ -728,7 +715,7 @@ def _walkthrough_markdown(demo_mode: bool = False) -> str:
         [
             "### 1. Upload FlexWorks inputs\n"
             "**FlexWorks Export CSVs** contain simulation revenue or market performance data. "
-            "**Device-to-Zone Mapping CSV** connects simulation devices or nodes to zone names. "
+            "**Coordinate Lookup CSV** optionally connects simulation devices or nodes to coordinates or zone names. "
             "**Zones GeoJSON** provides the polygon boundaries used for zone maps.",
             "### 2. Run analysis\n"
             "Click **Run Analysis** after staging the required FlexWorks export files. "
@@ -762,7 +749,7 @@ def _walkthrough_html_sections(demo_mode: bool = False) -> str:
         sections = [
             (
                 "1. Upload FlexWorks inputs",
-                "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Device-to-Zone Mapping CSV</strong> connects devices or nodes to zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
+                "<strong>FlexWorks Export CSVs</strong> hold simulation revenue/performance data. <strong>Coordinate Lookup CSV</strong> optionally connects devices or nodes to coordinates or zones. <strong>Zones GeoJSON</strong> supplies polygon boundaries for maps.",
             ),
             (
                 "2. Run analysis",
@@ -827,12 +814,12 @@ def _render_app(force_demo_mode: bool | None = None) -> None:
         )
         st.sidebar.caption("Upload one or more Flexworks simulation export files containing revenue or market performance data.")
         uploaded_lookup = st.sidebar.file_uploader(
-            "Device-to-Zone Mapping CSV",
+            "Coordinate Lookup CSV (optional)",
             type=["csv"],
             key="staged_coordinate_lookup",
-            help="Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.",
+            help="Optional coordinate or device-to-zone mapping file that connects devices/nodes from the simulation export to map zones.",
         )
-        st.sidebar.caption("Optional mapping file that connects devices/nodes from the simulation export to zone names used in the map.")
+        st.sidebar.caption("Optional coordinate or device-to-zone mapping file that connects devices/nodes from the simulation export to map zones.")
         uploaded_pjm_geojson = st.sidebar.file_uploader(
             "Zones GeoJSON",
             type=["geojson", "json"],

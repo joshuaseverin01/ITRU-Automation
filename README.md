@@ -138,19 +138,19 @@ The current branch is the full internal dashboard by default. Run normally to us
 streamlit run app.py
 ```
 
-In this mode, the sidebar shows upload controls for FlexWorks CSVs, an optional device-to-zone mapping CSV, and an optional zones GeoJSON. It does not expose the public demo workflow or a demo page selector.
+In this mode, the sidebar shows upload controls for FlexWorks CSVs, an optional coordinate lookup/device-to-zone mapping CSV, and an optional zones GeoJSON. It does not expose the public demo workflow or a demo page selector.
 
-Reusable demo-mode helpers remain in the codebase for a later public demo branch. To preview bundled demo mode locally without creating a separate branch, set an environment variable:
+Reusable demo-mode helpers remain in the codebase for a later public demo branch. On the current branch, only `APP_MODE=demo` activates the bundled-data workflow; legacy flags such as `PUBLIC_DEMO_ONLY` and `DEMO_MODE` are ignored so stale deployment secrets cannot force the internal app into demo mode.
 
 ```toml
-PUBLIC_DEMO_ONLY = "true"
+APP_MODE = "demo"
 ```
 
 ```bash
-PUBLIC_DEMO_ONLY=true streamlit run app.py
+APP_MODE=demo streamlit run app.py
 ```
 
-Do not set `PUBLIC_DEMO_ONLY`, `APP_MODE=demo`, or `DEMO_MODE=true` for the production/internal deployment.
+Do not set `APP_MODE=demo` for the production/internal deployment.
 
 ## How to Run Tests
 
@@ -175,7 +175,7 @@ demo_data/
   zones.geojson
 ```
 
-The full internal app does not show a demo loader by default. Users should upload their own Flexworks exports, device-to-zone mapping CSV, and zone GeoJSON through the sidebar. Demo data is intended for local testing and portfolio/demo branch work, not investment analysis.
+The full internal app does not show a demo loader by default. Users should upload their own Flexworks exports, coordinate lookup or device-to-zone mapping CSV, and zone GeoJSON through the sidebar. Demo data is intended for local testing and portfolio/demo branch work, not investment analysis.
 
 ## Export Outputs
 
