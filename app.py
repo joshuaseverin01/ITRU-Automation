@@ -147,7 +147,7 @@ def is_demo_mode(
     if force_demo_mode is True:
         return True
 
-    app_mode = get_secret_or_env("APP_MODE", "production", environ=environ, secrets=secrets).strip().lower()
+    app_mode = get_secret_or_env("APP_MODE", "demo", environ=environ, secrets=secrets).strip().lower()
     return app_mode == "demo"
 
 

@@ -130,27 +130,27 @@ streamlit run app.py
 
 The app runs locally and does not require a database, authentication, deployment service, or external API.
 
-## Internal And Demo Modes
+## Public Demo Branch Mode
 
-The current branch is the full internal dashboard by default. Run normally to use real FlexWorks uploads:
+This `demo` branch is the public portfolio demo. Run normally to use bundled sample files:
 
 ```bash
 streamlit run app.py
 ```
 
-In this mode, the sidebar shows upload controls for FlexWorks CSVs, an optional coordinate lookup/device-to-zone mapping CSV, and an optional zones GeoJSON. It does not expose the public demo workflow or a demo page selector.
+In this mode, the sidebar shows public demo controls and hides production file uploads. Visitors can load bundled PJM sample files, run the analysis, explore maps and charts, and use safe export/blog/presentation tools.
 
-Reusable demo-mode helpers remain in the codebase for a later public demo branch. On the current branch, only `APP_MODE=demo` activates the bundled-data workflow; legacy flags such as `PUBLIC_DEMO_ONLY` and `DEMO_MODE` are ignored so stale deployment secrets cannot force the internal app into demo mode.
+For local development only, you can preview the full internal upload workflow from this branch by setting:
 
 ```toml
-APP_MODE = "demo"
+APP_MODE = "production"
 ```
 
 ```bash
-APP_MODE=demo streamlit run app.py
+APP_MODE=production streamlit run app.py
 ```
 
-Do not set `APP_MODE=demo` for the production/internal deployment.
+Do not set `APP_MODE=production` for the public Streamlit Community Cloud demo deployment. See `README_DEMO_DEPLOYMENT.md` for deployment settings.
 
 ## How to Run Tests
 
@@ -166,7 +166,7 @@ python -m py_compile app.py src/*.py
 
 ## Demo Data
 
-Bundled PJM demo files remain in the repository for future public demo work and local testing:
+Bundled PJM demo files are included for the public demo workflow:
 
 ```text
 demo_data/
@@ -175,7 +175,7 @@ demo_data/
   zones.geojson
 ```
 
-The full internal app does not show a demo loader by default. Users should upload their own Flexworks exports, coordinate lookup or device-to-zone mapping CSV, and zone GeoJSON through the sidebar. Demo data is intended for local testing and portfolio/demo branch work, not investment analysis.
+The public demo app uses these files instead of visitor uploads. Demo data is intended for workflow illustration and portfolio presentation, not investment analysis.
 
 ## Export Outputs
 

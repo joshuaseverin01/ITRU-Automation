@@ -18,8 +18,8 @@ DEMO_ZONES_GEOJSON = DEMO_DIR / "zones.geojson"
 
 
 class DemoDataTests(unittest.TestCase):
-    def test_legacy_public_demo_only_flag_does_not_force_demo_mode(self) -> None:
-        self.assertFalse(is_demo_mode(environ={"PUBLIC_DEMO_ONLY": "true"}, secrets={}))
+    def test_public_demo_branch_defaults_to_demo_mode(self) -> None:
+        self.assertTrue(is_demo_mode(environ={}, secrets={}))
 
     def test_force_demo_mode_enables_demo_mode(self) -> None:
         self.assertTrue(is_demo_mode(force_demo_mode=True, environ={}, secrets={}))
@@ -27,14 +27,14 @@ class DemoDataTests(unittest.TestCase):
     def test_demo_mode_enabled_by_app_mode(self) -> None:
         self.assertTrue(is_demo_mode(environ={"APP_MODE": "demo"}, secrets={}))
 
-    def test_legacy_demo_mode_flag_does_not_force_demo_mode(self) -> None:
-        self.assertFalse(is_demo_mode(environ={"DEMO_MODE": "true"}, secrets={}))
+    def test_production_app_mode_can_preview_full_upload_workflow(self) -> None:
+        self.assertFalse(is_demo_mode(environ={"APP_MODE": "production"}, secrets={}))
 
     def test_demo_mode_enabled_by_streamlit_secret_style_mapping(self) -> None:
         self.assertTrue(is_demo_mode(environ={}, secrets={"APP_MODE": "demo"}))
 
-    def test_demo_mode_disabled_by_default(self) -> None:
-        self.assertFalse(is_demo_mode(environ={}, secrets={}))
+    def test_legacy_demo_mode_flag_does_not_override_production_app_mode(self) -> None:
+        self.assertFalse(is_demo_mode(environ={"APP_MODE": "production", "DEMO_MODE": "true"}, secrets={}))
 
     def test_demo_page_is_not_exposed_in_full_app_navigation(self) -> None:
         self.assertFalse(Path("pages/demo.py").exists())
